@@ -15,7 +15,7 @@ async fn main() -> Result<(), Error> {
     let listener = sock.expect("failed to bind");
     print!("listening on: {}", addr);
     while let (Ok((stream, _))) = listener.accept().await {
-        
+        tokio::spawn(accept_connection(stream));   
     }
     Ok(())
 }
