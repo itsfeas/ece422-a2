@@ -20,7 +20,7 @@ struct FNode {
 struct User {
     id: String,
     user_name: String,
-    groups: Vec<String>,
+    group: String,
     salt: String,
     is_admin: bool
 }
