@@ -2,22 +2,26 @@ CREATE TABLE fnode (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR,
     path VARCHAR,
-    owner BIGSERIAL FOREIGN KEY user_group_node.id,
-    hash NUMERIC,
-    parent BIGSERIAL,
+    owner VARCHAR,
+    hash VARCHAR,
+    parent BIGINT,
     has_children BOOLEAN,
     u SMALLINT,
     g SMALLINT,
     o SMALLINT,
-    children BIGSERIAL[]
+    children BIGINT[]
 );
 
-CREATE TABLE user_group_node (
+CREATE TABLE users (
     id BIGSERIAL PRIMARY KEY,
-    name VARCHAR,
-    has_children BOOLEAN,
-    users BIGSERIAL[],
-    is_admin BOOLEAN,
+    user_name VARCHAR,
+    group BIGINT FOREIGN KEY groups.id,
     salt VARCHAR,
-    user_group BIGSERIAL
+    is_admin BOOLEAN
+);
+
+CREATE TABLE groups (
+    id BIGSERIAL PRIMARY KEY,
+    users BIGINT[] FOREIGN KEY users.id,
+    name VARCHAR
 );
