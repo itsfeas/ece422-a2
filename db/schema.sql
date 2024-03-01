@@ -2,7 +2,7 @@ CREATE TABLE fnode (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR,
     path VARCHAR,
-    owner VARCHAR,
+    owner BIGINT,
     hash VARCHAR,
     parent BIGINT,
     has_children BOOLEAN,
