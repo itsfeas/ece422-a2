@@ -1,17 +1,17 @@
-use std::net::{TcpListener, TcpStream};
-use std::string::String; 
-use std::io::{Write, Read};
+use tungstenite::{connect, Message};
 
 fn main() {
-    let server_addr = "127.0.0.1:2222";
-    let mut stream = TcpStream::connect(server_addr).expect("TCP connection failed"); 
-
-    while true {
-        let message = String::from("test message");
-        let mut buffer = Vec::new(); 
-        stream.write(&message.as_bytes()).expect("Error writing");
-        stream.read(&mut buffer).expect("Error reading"); 
-
-        println!("{}", String::from_utf8(buffer.clone()).unwrap()); 
+    let server_addr = "ws://127.0.0.1:8080";
+    let (mut socket, _) = connect(server_addr).expect("Can't connect");
+    println!("connected!");
+    
+    for i in 0..1000 {
+        let message = Message::Text(format!("test message {}", i));
+        socket.write(message).expect("Error writing");
+        let _ = socket.flush();
+        let resp = socket.read().expect("Error reading"); 
+    
+        println!("{}", resp.to_text().unwrap()); 
     }
+    socket.close(None).unwrap();
 }
