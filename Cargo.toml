@@ -1,0 +1,10 @@
+[workspace]
+members = [
+  "client",
+  "server",
+  "model"
+]
+
+[package]
+name = "ece422-a2"
+version = "0.1.0"
