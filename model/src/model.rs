@@ -17,16 +17,18 @@ struct FNode {
 }
 
 #[derive()]
-struct UserGroupNode {
+struct User {
     id: String,
-    name: String,
-    has_children: bool,
-
-    //if group
-    users: Vec<String>,
-
-    //if user
-    is_admin: bool,
+    user_name: String,
+    group: String,
     salt: String,
-    user_group: String,
+    is_admin: bool
+}
+
+
+#[derive()]
+struct Group {
+    id: String,
+    users: Vec<String>,
+    name: String,
 }
