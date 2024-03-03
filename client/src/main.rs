@@ -1,17 +1,39 @@
-use std::net::{TcpListener, TcpStream};
+use futures::TryStreamExt;
+use tokio::net::{TcpListener, TcpStream};
 use std::string::String; 
-use std::io::{Write, Read};
+// use std::io::{Write, Read};
+use tokio::io::{AsyncWriteExt, AsyncReadExt}; 
+use std::error::Error; 
+use tokio_tungstenite::{connect_async, client_async_tls, tungstenite::Message};
+use futures_util::StreamExt;
+use futures_util::SinkExt;
 
-fn main() {
-    let server_addr = "127.0.0.1:2222";
-    let mut stream = TcpStream::connect(server_addr).expect("TCP connection failed"); 
 
-    while true {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let server_addr = "127.0.0.1:8080";
+
+    let url = url::Url::parse("ws://127.0.0.1:8080").unwrap();
+    println!("URL: {}", url);
+    let (ws_stream, _) = connect_async(url).await.expect("Failed to connect");
+    println!("WebSocket handshake has been successfully completed");
+
+    let (mut w, mut r) = ws_stream.split();
+    
+    loop {
         let message = String::from("test message");
-        let mut buffer = Vec::new(); 
-        stream.write(&message.as_bytes()).expect("Error writing");
-        stream.read(&mut buffer).expect("Error reading"); 
+        w.send(Message::Text(message.clone())).await;
+        println!("Message sent :{:?}", &message);
+            
+        while let Some(val) = r.next().await {
+            let value = val?; 
+            if value.is_text() || value.is_binary() {
+                println!("Received: {:?}", value); 
+            }
+        }
 
-        println!("{}", String::from_utf8(buffer.clone()).unwrap()); 
-    }
+    };
+
+
+    Ok(())
 }
