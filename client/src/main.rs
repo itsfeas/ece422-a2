@@ -3,6 +3,8 @@ use tungstenite::{connect, Message};
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use url::Url; 
 use serde::{Serialize, Deserialize}; 
+
+use model::model::AppMessage;  
 // use serde::{serialize, deserialize}; 
 
 
@@ -33,8 +35,13 @@ fn key_exchange(server_addr: &Url) -> SharedSecret {
     //
     
     let (mut socket, response) = connect(server_addr.clone()).expect("Failed to connect");
+    let app_message = AppMessage {
+        cmd: String::from("new"), 
+        data: vec![String::from("")]
+    }; 
 
-    socket.send(Message::Text("new".into())).unwrap();
+
+    socket.send(Message::Text(serde_json::to_string(&app_message).unwrap())).unwrap();
     let msg = socket.read().expect("Error reading message");
     println!("Received: {}", msg);
 
