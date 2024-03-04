@@ -1,7 +1,9 @@
 use std::error::Error; 
 use tungstenite::{connect, Message}; 
-use x25519_dalek::{EphemeralSecret, PublicKey};
+use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use url::Url; 
+use serde::{Serialize, Deserialize}; 
+// use serde::{serialize, deserialize}; 
 
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -21,7 +23,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 
-fn key_exchange(server_addr: &Url) {
+fn key_exchange(server_addr: &Url) -> SharedSecret {
     
     let rand_num = rand::thread_rng(); 
     let client_secret = EphemeralSecret::new(rand_num);
@@ -35,6 +37,17 @@ fn key_exchange(server_addr: &Url) {
     socket.send(Message::Text("new".into())).unwrap();
     let msg = socket.read().expect("Error reading message");
     println!("Received: {}", msg);
+
+    let mut server_public: PublicKey; 
+    if msg.is_text() || msg.is_binary(){
+        server_public = serde_json::from_str(msg.to_text().unwrap()).expect("Deserialize failed");  
+    } else {
+        panic!("Deserialization failed")
+    }
+
+    let client_shared_key = client_secret.diffie_hellman(&server_public); 
+    
+    return client_shared_key; 
 
     // deffie-hellmamn
 
