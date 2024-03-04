@@ -3,6 +3,9 @@ use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::net::{TcpListener, TcpStream};
 use log::info;
 use postgres::{Client, NoTls};
+use model::model::AppMessage;
+use x25519_dalek::{EphemeralSecret, PublicKey};
+
 
 // https://github.com/snapview/tokio-tungstenite/blob/master/examples/echo-server.rs
 #[tokio::main]
@@ -33,9 +36,30 @@ async fn accept_connection(stream: TcpStream) {
     };
     println!("New WebSocket connection: {}", addr);
 
+    let server_secret = EphemeralSecret::random();
+    let server_public = PublicKey::from(&server_secret);
+    let mut client_public: Option<PublicKey> = None;
+    let mut shared_secret: Option<PublicKey> = None;
+
     let (w, r) = ws_stream.split();
-    r.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()))
-        .forward(w)
-        .await
-        .expect("failed")
+    let mut authenticated = false;
+    let stream = r.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()))
+        .map(|msg| msg.unwrap())
+        .map(|msg| msg.to_string())
+        .for_each(|msg_serialized| {
+            let msg: model::model::AppMessage = match authenticated {
+                true => todo!(),
+                false => serde_json::from_str(&msg_serialized).unwrap(),
+            };
+            match msg.cmd.as_str() {
+                "new" => {
+                    client_public = Some(serde_json::from_str(&msg.data[0]).unwrap());
+                    shared_secret = Some(server_secret.diffie_hellman(&client_public));
+                },
+                _ => todo!()
+            }
+            // msg.
+            future::ready(())
+        });
+    stream.await;
 }
