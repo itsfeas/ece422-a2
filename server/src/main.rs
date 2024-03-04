@@ -1,8 +1,10 @@
 use std::io::Error;
 use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::net::{TcpListener, TcpStream};
-use log::info;
 use postgres::{Client, NoTls};
+
+#[path = "./dao/dao.rs"]
+mod dao;
 
 // https://github.com/snapview/tokio-tungstenite/blob/master/examples/echo-server.rs
 #[tokio::main]
