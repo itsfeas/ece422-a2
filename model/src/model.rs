@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 
 #[derive()]
 struct FNode {
@@ -31,4 +32,10 @@ struct Group {
     id: String,
     users: Vec<String>,
     name: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct AppMessage {
+    cmd: String,
+    data: Vec<String>,
 }
