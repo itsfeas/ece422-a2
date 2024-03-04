@@ -1,0 +1,26 @@
+#took help from: https://github.com/docker/awesome-compose
+version: '3.8'
+
+services:
+  db:
+    image: postgres
+    restart: always
+    networks:
+      - bkd-net
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASS}
+    volumes:
+      - db-data:/db/schema.sql
+    # depends_on:
+    #   - db
+  # server:
+  #   networks:
+  #     - bkd-net
+    
+networks:
+  bkd-net: {}
+
+volumes:
+  db-data: {}
