@@ -4,7 +4,7 @@ use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::net::{TcpListener, TcpStream};
 use log::info;
 use postgres::{Client, NoTls};
-use model::model::AppMessage;
+use model::model::{AppMessage, Cmd};
 use tokio_tungstenite::tungstenite::Message;
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use rand_core::OsRng;
@@ -70,8 +70,8 @@ async fn accept_connection(stream: TcpStream) {
             },
             false => serde_json::from_str(&msg_serialized).unwrap(),
         };
-        match msg.cmd.as_str() {
-            "new" => {
+        match msg.cmd {
+            Cmd::New => {
                 let server_secret = EphemeralSecret::random_from_rng(OsRng);
                 let server_public = PublicKey::from(&server_secret);
                 let client_public: PublicKey = serde_json::from_str(&msg.data[0]).unwrap();
@@ -82,7 +82,7 @@ async fn accept_connection(stream: TcpStream) {
                 println!("client_shared_key {:?}", key_arr);
                 key = Arc::new(Some(key_arr.into()));
                 let reply = AppMessage{
-                    cmd: "new".to_string(),
+                    cmd: Cmd::New,
                     data: vec![serde_json::to_string(&server_public).unwrap()]
                 };
                 ws_stream.send(Message::text(serde_json::to_string(&reply).unwrap())).await.unwrap();
