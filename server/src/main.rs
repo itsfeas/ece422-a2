@@ -8,9 +8,14 @@ use model::model::AppMessage;
 use tokio_tungstenite::tungstenite::Message;
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use rand_core::OsRng;
+use aes_gcm::{
+    aead::{Aead, AeadCore, KeyInit},
+    Aes256Gcm, Nonce, Key
+};
+use std::str::from_utf8;
 
-
-// https://github.com/snapview/tokio-tungstenite/blob/master/examples/echo-server.rs
+// - https://github.com/snapview/tokio-tungstenite/blob/master/examples/echo-server.rs
+// - https://docs.rs/aes-gcm/latest/aes_gcm/
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // let mut client = Client::connect("host=localhost user=postgres", NoTls)?;
@@ -39,7 +44,8 @@ async fn accept_connection(stream: TcpStream) {
     };
     println!("New WebSocket connection: {}", addr);
 
-    let mut shared_secret: Arc<Option<SharedSecret>> = Arc::new(None);
+    let mut shared_secret: Arc<Option<Arc<SharedSecret>>> = Arc::new(None);
+    let mut key: Arc<Option<Key<Aes256Gcm>>> = Arc::new(None);
 
     let (mut w, r) = ws_stream.split();
     let mut authenticated = false;
@@ -48,7 +54,13 @@ async fn accept_connection(stream: TcpStream) {
         .map(|msg| msg.to_string())
         .for_each(|msg_serialized| {
             let msg: AppMessage = match authenticated {
-                true => todo!(),
+                true => {
+                    let cipher = Aes256Gcm::new(&(*key).unwrap());
+                    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+                    let plaintext = cipher.decrypt(&nonce, msg_serialized.as_ref()).unwrap();
+                    let plaintext_str = from_utf8(&plaintext).unwrap();
+                    serde_json::from_str(&plaintext_str).unwrap()
+                },
                 false => serde_json::from_str(&msg_serialized).unwrap(),
             };
             match msg.cmd.as_str() {
@@ -56,12 +68,17 @@ async fn accept_connection(stream: TcpStream) {
                     let server_secret = EphemeralSecret::random_from_rng(OsRng);
                     let server_public = PublicKey::from(&server_secret);
                     let client_public: PublicKey = serde_json::from_str(&msg.data[0]).unwrap();
-                    shared_secret = Arc::new(Some(server_secret.diffie_hellman(&client_public)));
+                    shared_secret = Arc::new(Some(Arc::new(server_secret.diffie_hellman(&client_public))));
+                    // let key_arr = (*(shared_secret)).unwrap().to_bytes();
+                    let ref_cell = Option::clone((shared_secret.as_ref()));
+                    let key_arr: [u8; 32] = ref_cell.unwrap().to_bytes();
+                    key = Arc::new(Some(key_arr.into()));
                     let reply = AppMessage{
                         cmd: "new".to_string(),
                         data: vec![serde_json::to_string(&server_public).unwrap()]
                     };
                     w.send(Message::text(serde_json::to_string(&reply).unwrap()));
+                    w.flush();
                     authenticated = true;
                 },
                 _ => todo!()
