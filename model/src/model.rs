@@ -34,8 +34,21 @@ pub struct Group {
     pub name: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum Cmd {
+    Cat,
+    Cd,
+    Echo,
+    Ls,
+    Mkdir,
+    Mv,
+    New,
+    Pwd,
+    Touch,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AppMessage {
-    pub cmd: String,
+    pub cmd: Cmd,
     pub data: Vec<String>,
 }
