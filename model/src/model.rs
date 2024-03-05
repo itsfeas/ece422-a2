@@ -34,7 +34,7 @@ pub struct Group {
     pub name: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct AppMessage {
     pub cmd: String,
     pub data: Vec<String>,
