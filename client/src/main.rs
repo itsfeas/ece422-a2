@@ -4,8 +4,7 @@ use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use url::Url; 
 use serde::{Serialize, Deserialize};
 use futures::Stream;
-
-use model::model::AppMessage;  
+use model::{cmd::MapStr, model::{AppMessage, Cmd}};
 // use serde::{serialize, deserialize}; 
 
 
@@ -48,7 +47,7 @@ fn try_login<S>(input_str: String, socket: &mut WebSocket<S>) -> LoginStatus whe
     let app_message = command_parser(input_str).unwrap();  
     println!("DEBUG: {:?}", app_message); 
     
-    if app_message.cmd == "new" {
+    if app_message.cmd == Cmd::New {
         println!("DEBUG: reached"); 
         let shared_secret = key_exchange(socket); 
         println!("DEBUG: {:?}", Vec::from(shared_secret.as_ref()));  
@@ -72,7 +71,7 @@ fn command_parser(input_str: String) -> Result<AppMessage, String> {
     let message = match result.pop() {
         Some(cmd_val) => {
             AppMessage {
-                cmd: cmd_val, 
+                cmd: Cmd::from_str(cmd_val).expect("command could not be mapped!"), 
                 data: result 
             }
         }, 
@@ -92,7 +91,7 @@ fn key_exchange<S>(socket: &mut WebSocket<S>) -> SharedSecret where S: std::io::
     //
     
     let app_message = AppMessage {
-        cmd: String::from("new"), 
+        cmd: Cmd::New, 
         data: vec![serde_json::to_string(&client_public).unwrap()]
     }; 
 
@@ -102,14 +101,15 @@ fn key_exchange<S>(socket: &mut WebSocket<S>) -> SharedSecret where S: std::io::
     let msg = socket.read().expect("Error reading message");
     println!("Received: {}", msg);
 
-    let mut server_public: PublicKey; 
-    if msg.is_text() || msg.is_binary(){
-        server_public = serde_json::from_str(msg.to_text().unwrap()).expect("Deserialize failed");  
-    } else {
-        panic!("Deserialization failed")
-    }
+    let server_public_key_msg: AppMessage = serde_json::from_str(msg.to_text().unwrap()).expect("Deserialize failed for server_pub_key_msg!");
+    let server_public: PublicKey = serde_json::from_str(&server_public_key_msg.data[0]).expect("Deserialize failed for server_public!");
+    // if msg.is_text() || msg.is_binary(){
+    // } else {
+    //     panic!("Deserialization failed")
+    // }
 
     let client_shared_key = client_secret.diffie_hellman(&server_public); 
+    println!("client_shared_key {:?}", client_shared_key.as_bytes());
     
     return client_shared_key; 
 
