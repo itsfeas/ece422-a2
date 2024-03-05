@@ -38,7 +38,7 @@ async fn accept_connection(stream: TcpStream) {
     };
     println!("peer: {}", addr);
     
-    let ws_stream = match tokio_tungstenite::accept_async(stream).await {
+    let mut ws_stream = match tokio_tungstenite::accept_async(stream).await {
         Ok(v) => v,
         Err(e) => panic!("error during websocket handshake!: {}", e),
     };
@@ -47,48 +47,54 @@ async fn accept_connection(stream: TcpStream) {
     let mut shared_secret: Arc<Option<Arc<SharedSecret>>> = Arc::new(None);
     let mut key: Arc<Option<Key<Aes256Gcm>>> = Arc::new(None);
 
-    let (mut w, r) = ws_stream.split();
+    // let (mut w, mut r) = ws_stream.split();
     let mut authenticated = false;
-    let stream = r.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()))
-        .map(|msg| msg.unwrap())
-        .map(|msg| msg.to_string())
-        .for_each(|msg_serialized| {
-            let msg: AppMessage = match authenticated {
-                true => {
-                    let cipher = Aes256Gcm::new(&(*key).unwrap());
-                    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-                    let plaintext = cipher.decrypt(&nonce, msg_serialized.as_ref()).unwrap();
-                    let plaintext_str = from_utf8(&plaintext).unwrap();
-                    serde_json::from_str(&plaintext_str).unwrap()
-                },
-                false => serde_json::from_str(&msg_serialized).unwrap(),
-            };
-            match msg.cmd.as_str() {
-                "new" => {
-                    let server_secret = EphemeralSecret::random_from_rng(OsRng);
-                    let server_public = PublicKey::from(&server_secret);
-                    let client_public: PublicKey = serde_json::from_str(&msg.data[0]).unwrap();
-                    shared_secret = Arc::new(Some(Arc::new(server_secret.diffie_hellman(&client_public))));
-                    // let key_arr = (*(shared_secret)).unwrap().to_bytes();
-                    let ref_cell = Option::clone((shared_secret.as_ref()));
-                    let key_arr: [u8; 32] = ref_cell.unwrap().to_bytes();
-                    key = Arc::new(Some(key_arr.into()));
-                    let reply = AppMessage{
-                        cmd: "new".to_string(),
-                        data: vec![serde_json::to_string(&server_public).unwrap()]
-                    };
-                    w.send(Message::text(serde_json::to_string(&reply).unwrap()));
-                    w.flush();
-                    authenticated = true;
-                },
-                _ => todo!()
-            }
-            // let reply = AppMessage{
-            //     cmd: "test".to_string(),
-            //     data: Vec::new()
-            // };
-            // w.send(Message::text(serde_json::to_string(&reply).unwrap()));
-            future::ready(())
-        });
-    stream.await
+    while let Some(m) = ws_stream.next().await {
+        let m = match m {
+            Ok(m) => m,
+            Err(e) => panic!("panicked while checking validity of message {}", e),
+        };
+        if !m.is_text() && m.is_binary() {
+            continue;
+        }
+        let msg_serialized = m.to_string();
+
+        println!("SERIALIZED_MSG: {}", msg_serialized);
+        let msg: AppMessage = match authenticated {
+            true => {
+                let cipher = Aes256Gcm::new(&(*key).unwrap());
+                let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+                let plaintext = cipher.decrypt(&nonce, msg_serialized.as_ref()).unwrap();
+                let plaintext_str = from_utf8(&plaintext).unwrap();
+                serde_json::from_str(&plaintext_str).unwrap()
+            },
+            false => serde_json::from_str(&msg_serialized).unwrap(),
+        };
+        match msg.cmd.as_str() {
+            "new" => {
+                let server_secret = EphemeralSecret::random_from_rng(OsRng);
+                let server_public = PublicKey::from(&server_secret);
+                let client_public: PublicKey = serde_json::from_str(&msg.data[0]).unwrap();
+                shared_secret = Arc::new(Some(Arc::new(server_secret.diffie_hellman(&client_public))));
+                // let key_arr = (*(shared_secret)).unwrap().to_bytes();
+                let ref_cell = Option::clone(shared_secret.as_ref());
+                let key_arr: [u8; 32] = ref_cell.unwrap().to_bytes();
+                println!("client_shared_key {:?}", key_arr);
+                key = Arc::new(Some(key_arr.into()));
+                let reply = AppMessage{
+                    cmd: "new".to_string(),
+                    data: vec![serde_json::to_string(&server_public).unwrap()]
+                };
+                ws_stream.send(Message::text(serde_json::to_string(&reply).unwrap())).await.unwrap();
+                // let sent = w.send(Message::text(serde_json::to_string(&reply).unwrap()));
+                authenticated = true;
+            },
+            _ => todo!()
+        }
+        // let reply = AppMessage{
+        //     cmd: "test".to_string(),
+        //     data: Vec::new()
+        // };
+        // w.send(Message::text(serde_json::to_string(&reply).unwrap()));
+    }
 }
