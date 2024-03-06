@@ -34,7 +34,7 @@ pub fn salt_pass(pass: String) -> Result<String, String> {
     let argon2 = Argon2::default();
     match argon2.hash_password(b_pass, &salt) {
         Ok(p) => Ok(p.to_string()),
-        Err(_) => Err(()),
+        Err(_) => Err("Error".into()),
     }
 }
 
@@ -46,7 +46,7 @@ pub fn auth_user(client: &mut Client, user_name: String, pass: String) -> Result
     let e = client.query_one("SELECT user_name FROM users u WHERE u.user_name=$1 AND u.pass=$2",
     &[&user_name, &salted]);
     match e {
-        Ok(e) => Ok(e.get(0)==user_name),
+        Ok(e) => Ok(true),  //Ok(e.get((0)==user_name)),
         Err(_) => Err(format!("could not query whether user exists!")),
     }
 }
@@ -79,6 +79,19 @@ pub fn add_user_to_group(client: &mut Client, user_name: String, group_name: Str
     &[&group_name, &Vec::<i64>::new()]);
     match e {
         Ok(_) => Ok(group_name),
-        Err(_) => Err(()),
+        Err(_) => Err("Error".into()),
     }
+}
+
+
+
+//////////////////////////////////
+///     FILESYSTEM MOVEMENT    ///
+//////////////////////////////////
+
+
+pub trait Traversal {
+    fn make_child(&self) -> Result<Self, String> where Self: Sized; 
+    fn get_child(&self) -> Result<Self, String> where Self: Sized; 
+    fn set_child(&mut self) -> Result<Self, String> where Self: Sized; 
 }
