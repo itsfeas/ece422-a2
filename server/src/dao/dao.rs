@@ -24,7 +24,7 @@ pub fn salt_pass(pass: String) -> Result<String, String> {
     }
 }
 
-pub fn auth_user(mut client: Client, user_name: String, pass: String) -> Result<bool, String> {
+pub fn auth_user(&mut client: Client, user_name: String, pass: String) -> Result<bool, String> {
     let salted = match salt_pass(pass){
         Ok(salt) => salt,
         Err(_) => return Err(format!("couldn't hash user pass while authenticating user!")),
@@ -38,7 +38,7 @@ pub fn auth_user(mut client: Client, user_name: String, pass: String) -> Result<
 }
 
 //used https://docs.rs/argon2/latest/argon2/
-pub fn create_user(mut client: Client, user_name: String, pass: String, group: String, is_admin: bool) -> Result<String, String>{
+pub fn create_user(&mut client: Client, user_name: String, pass: String, group: String, is_admin: bool) -> Result<String, String>{
     let salt = match salt_pass(pass){
         Ok(salt) => salt,
         Err(_) => return Err(format!("couldn't hash user pass while creating user!")),
@@ -51,7 +51,7 @@ pub fn create_user(mut client: Client, user_name: String, pass: String, group: S
     }
 }
 
-pub fn create_group(mut client: Client, group_name: String) -> Result<String, String>{
+pub fn create_group(&mut client: Client, group_name: String) -> Result<String, String>{
     let e = client.execute("INSERT INTO groups values (name, users) VALUES ($1, $2)",
     &[&group_name, &Vec::<i64>::new()]);
     match e {
@@ -60,7 +60,7 @@ pub fn create_group(mut client: Client, group_name: String) -> Result<String, St
     }
 }
 
-pub fn add_user_to_group(mut client: Client, user_name: String, group_name: String) -> Result<String, String>{
+pub fn add_user_to_group(&mut client: Client, user_name: String, group_name: String) -> Result<String, String>{
     let e = client.execute("INSERT INTO groups values (name, users) VALUES ($1, $2)",
     &[&group_name, &Vec::<i64>::new()]);
     match e {
