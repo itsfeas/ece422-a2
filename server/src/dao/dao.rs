@@ -8,11 +8,25 @@ use argon2::{
     },
     Argon2
 };
+use model::model::FNode;
 
-// fn add_file(client: Client, path: String) {
+fn add_file(client: &mut Client, file: FNode) -> Result<String, String> {
+    let e = client.execute("INSERT INTO fnode values (name, path, owner, hash, parent, dir, u, g, o, children) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+    &[&file.name, &file.path, &file.owner, &file.hash, &file.parent, &file.dir, &file.u, &file.g, &file.o, &file.children]);
+    match e {
+        Ok(_) => Ok(file.name),
+        Err(_) => Err(format!("couldn't create file!")),
+    }
+}
 
-// }
-
+fn remove_file(client: &mut Client, path: String) -> Result<String, String> {
+    let e = client.execute("DELETE FROM fnode WHERE path=$1",
+    &[&path]);
+    match e {
+        Ok(_) => Ok(path),
+        Err(_) => Err(format!("couldn't create file!")),
+    }
+}
 
 pub fn salt_pass(pass: String) -> Result<String, String> {
     let b_pass = pass.as_bytes();
