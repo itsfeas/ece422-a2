@@ -22,6 +22,6 @@ CREATE TABLE users (
 
 CREATE TABLE groups (
     id BIGSERIAL PRIMARY KEY,
-    users BIGINT[] FOREIGN KEY users.id,
+    users BIGINT[],
     name VARCHAR
 );
