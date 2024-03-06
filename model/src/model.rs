@@ -39,6 +39,7 @@ pub enum Cmd {
     Cat,
     Cd,
     Echo,
+    Login,
     Ls,
     Mkdir,
     Mv,
