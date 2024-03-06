@@ -6,7 +6,7 @@ pub struct FNode {
     pub name: String,
     pub path: String,
     pub owner: String,
-    pub hash: i128,
+    pub hash: String,
     pub parent: String,
     pub dir: bool,
     pub u: i8,
