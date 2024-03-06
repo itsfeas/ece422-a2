@@ -75,15 +75,68 @@ pub fn create_group(client: &mut Client, group_name: String) -> Result<String, S
 }
 
 pub fn add_user_to_group(client: &mut Client, user_name: String, group_name: String) -> Result<String, String>{
-    let e = client.execute("INSERT INTO groups values (name, users) VALUES ($1, $2)",
-    &[&group_name, &Vec::<i64>::new()]);
-    match e {
-        Ok(_) => Ok(group_name),
-        Err(_) => Err("Error".into()),
+    let e = client.execute("UPDATE groups SET users = ARRAY_APPEND(users, $1) WHERE name=$2",
+    &[&user_name, &group_name]);
+    let e1 = client.execute("UPDATE users SET group=$1 WHERE user_name=$2",
+    &[&group_name, &user_name]);
+    match (e, e1) {
+        (Ok(_), Ok(_)) => Ok(group_name),
+        _ => Err("Failed to add user to group!".to_string()),
     }
 }
 
+pub fn remove_user_from_group(client: &mut Client, user_name: String, group_name: String) -> Result<String, String>{
+    let e = client.execute("UPDATE groups SET users = array_remove(users, $1) WHERE name=$2",
+    &[&user_name, &group_name]);
+    let e1 = client.execute("UPDATE users SET group='' WHERE user_name=$2",
+    &[&group_name, &user_name]);
+    match (e, e1) {
+        (Ok(_), Ok(_)) => Ok(group_name),
+        _ => Err("Failed to remove user from group!".to_string()),
+    }
+}
 
+pub fn get_f_node(client: &mut Client, path: String) -> Result<Option<FNode>, String> {
+    let e = client.query_opt("SELECT id, name, path, owner, hash, parent, dir, u, g, o, children FROM fnode WHERE path = $1", &[&path]);
+    match e {
+        Ok(Some(row)) => {
+            let fnode = FNode {
+                id: row.get(0),
+                name: row.get(1),
+                path: row.get(2),
+                owner: row.get(3),
+                hash: row.get(4),
+                parent: row.get(5),
+                dir: row.get(6),
+                u: row.get(7),
+                g: row.get(8),
+                o: row.get(9),
+                children: row.get(10),
+            };
+            Ok(Some(fnode))
+        }
+        Ok(None) => Ok(None),
+        Err(_) => Err(format!("failed to get fnode!")),
+    }
+}
+
+pub fn get_user(client: &mut Client, user_name: String) -> Result<Option<String>, String> {
+    let e = client.query_opt("SELECT user_name FROM users WHERE user_name = $1", &[&user_name]);
+    match e {
+        Ok(Some(_)) => Ok(Some(user_name)),
+        Ok(None) => Ok(None),
+        Err(_) => Err(format!("failed to get user!")),
+    }
+}
+
+pub fn get_group(client: &mut Client, group_name: String) -> Result<Option<String>, String> {
+    let e = client.query_opt("SELECT name FROM groups WHERE name = $1", &[&group_name]);
+    match e {
+        Ok(Some(_)) => Ok(Some(group_name)),
+        Ok(None) => Ok(None),
+        Err(_) => Err(format!("failed to get group!")),
+    }
+}
 
 //////////////////////////////////
 ///     FILESYSTEM MOVEMENT    ///
