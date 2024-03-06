@@ -1,14 +1,14 @@
 use serde::{Deserialize, Serialize};
 
 #[derive()]
-pub struct FNode {
+struct FNode {
     pub id: String,
     pub name: String,
     pub path: String,
     pub owner: String,
     pub hash: i128,
     pub parent: String,
-    pub has_children: bool,
+    pub dir: bool,
     pub u: i8,
     pub g: i8,
     pub o: i8,
