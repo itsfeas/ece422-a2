@@ -10,6 +10,7 @@ impl MapStr for Cmd {
             "cat" => Ok(Cmd::Cat),
             "cd" => Ok(Cmd::Cd),
             "echo" => Ok(Cmd::Echo),
+            "login" => Ok(Cmd::Login),
             "ls" => Ok(Cmd::Ls),
             "mkdir" => Ok(Cmd::Mkdir),
             "mv" => Ok(Cmd::Mv),
