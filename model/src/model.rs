@@ -1,34 +1,55 @@
+use serde::{Deserialize, Serialize};
 
 #[derive()]
-struct FNode {
-    id: String,
-    name: String,
-    path: String,
-    owner: String,
-    hash: i128,
-    parent: String,
-    has_children: bool,
-    u: i8,
-    g: i8,
-    o: i8,
+pub struct FNode {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub owner: String,
+    pub hash: i128,
+    pub parent: String,
+    pub has_children: bool,
+    pub u: i8,
+    pub g: i8,
+    pub o: i8,
     
     //if directory
-    children: Vec<String>,
+    pub children: Vec<String>,
 }
 
 #[derive()]
-struct User {
-    id: String,
-    user_name: String,
-    group: String,
-    salt: String,
-    is_admin: bool
+pub struct User {
+    pub id: String,
+    pub user_name: String,
+    pub group: String,
+    pub salt: String,
+    pub is_admin: bool
 }
 
 
 #[derive()]
-struct Group {
-    id: String,
-    users: Vec<String>,
-    name: String,
+pub struct Group {
+    pub id: String,
+    pub users: Vec<String>,
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum Cmd {
+    Cat,
+    Cd,
+    Echo,
+    Login,
+    Ls,
+    Mkdir,
+    Mv,
+    New,
+    Pwd,
+    Touch,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AppMessage {
+    pub cmd: Cmd,
+    pub data: Vec<String>,
 }
