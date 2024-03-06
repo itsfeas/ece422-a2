@@ -7,7 +7,7 @@ struct FNode {
     owner: String,
     hash: i128,
     parent: String,
-    has_children: bool,
+    dir: bool,
     u: i8,
     g: i8,
     o: i8,
