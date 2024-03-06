@@ -42,6 +42,7 @@ async fn accept_connection(stream: TcpStream) {
     let mut key: Arc<Option<Key<Aes256Gcm>>> = Arc::new(None);
 
     let mut encrypted = false;
+    let mut authenticated = false;
     while let Some(m) = ws_stream.next().await {
         let m = m.expect("panicked while checking validity of message");
         if !m.is_text() && m.is_binary() {
@@ -55,6 +56,9 @@ async fn accept_connection(stream: TcpStream) {
             Cmd::New => {
                 encrypt_sequence(&msg, &mut shared_secret, &mut key, &mut ws_stream).await;
                 encrypted = true;
+            },
+            Cmd::Login => {
+
             },
             _ => todo!()
         }
@@ -79,7 +83,6 @@ async fn encrypt_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<Arc<S
     let server_public = PublicKey::from(&server_secret);
     let client_public: PublicKey = serde_json::from_str(&msg.data[0]).unwrap();
     *shared_secret = Arc::new(Some(Arc::new(server_secret.diffie_hellman(&client_public))));
-    // let key_arr = (*(shared_secret)).unwrap().to_bytes();
     let ref_cell = Option::clone(shared_secret.as_ref());
     let key_arr: [u8; 32] = ref_cell.unwrap().to_bytes();
     println!("client_shared_key {:?}", key_arr);
@@ -90,6 +93,18 @@ async fn encrypt_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<Arc<S
     };
     send_app_message(ws_stream, reply).await;
 }
+
+// async fn login_sequence(msg: &AppMessage, ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>) -> Result<bool, ()> {
+//     let salt = SaltString::generate(&mut OsRng);
+//     let argon2 = Argon2::default();
+//     let password_hash = argon2.hash_password(msg.data[0], &salt)?.to_string();
+
+//     let reply = AppMessage{
+//         cmd: Cmd::New,
+//         data: vec![serde_json::to_string(&server_public).unwrap()]
+//     };
+//     send_app_message(ws_stream, reply).await;
+// }
 
 async fn send_app_message(ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>, reply: AppMessage) {
     ws_stream.send(Message::text(serde_json::to_string(&reply).unwrap())).await.unwrap();
