@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive()]
-struct FNode {
+pub struct FNode {
     pub id: String,
     pub name: String,
     pub path: String,
