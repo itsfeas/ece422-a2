@@ -74,7 +74,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Cli
 
 fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> String {
     let msg_serialized = serde_json::to_string(msg).unwrap();
-    let cipher = Aes256Gcm::new(&(**key).unwrap());
+    let cipher = Aes256Gcm::new(&(*key).unwrap());
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let encrypt = cipher.encrypt(&nonce, msg_serialized.as_ref()).unwrap();
     from_utf8(&encrypt).unwrap().to_string()
@@ -83,7 +83,7 @@ fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> Strin
 fn handle_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg_serialized: String) -> AppMessage {
     match encrypted {
         true => {
-            let cipher = Aes256Gcm::new(&(**key).unwrap());
+            let cipher = Aes256Gcm::new(&(*key).unwrap());
             let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
             let plaintext = cipher.decrypt(&nonce, msg_serialized.as_ref()).unwrap();
             let plaintext_str = from_utf8(&plaintext).unwrap();
