@@ -54,7 +54,7 @@ async fn accept_connection(stream: TcpStream) {
         let msg: AppMessage = handle_msg(encrypted, &mut key, msg_serialized);
         match msg.cmd {
             Cmd::New => {
-                encrypt_sequence(&msg, &mut shared_secret, &mut key, &mut ws_stream).await;
+                key_exchange_sequence(&msg, &mut shared_secret, &mut key, &mut ws_stream).await;
                 encrypted = true;
             },
             Cmd::Login => {
@@ -63,6 +63,14 @@ async fn accept_connection(stream: TcpStream) {
             _ => todo!()
         }
     }
+}
+
+fn encrypt_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> String {
+    let msg_serialized = serde_json::to_string(msg).unwrap();
+    let cipher = Aes256Gcm::new(&(**key).unwrap());
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let encrypt = cipher.encrypt(&nonce, msg_serialized.as_ref()).unwrap();
+    from_utf8(&encrypt).unwrap().to_string()
 }
 
 fn handle_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg_serialized: String) -> AppMessage {
@@ -78,7 +86,7 @@ fn handle_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg_serial
     }
 }
 
-async fn encrypt_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<Arc<SharedSecret>>>, key: &mut Arc<Option<Key<Aes256Gcm>>>, ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>) {
+async fn key_exchange_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<Arc<SharedSecret>>>, key: &mut Arc<Option<Key<Aes256Gcm>>>, ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>) {
     let server_secret = EphemeralSecret::random_from_rng(OsRng);
     let server_public = PublicKey::from(&server_secret);
     let client_public: PublicKey = serde_json::from_str(&msg.data[0]).unwrap();
