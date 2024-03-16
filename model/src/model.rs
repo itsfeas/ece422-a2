@@ -45,6 +45,7 @@ pub enum Cmd {
     Mv,
     NewConnection,
     NewUser,
+    Failure,
     Pwd,
     Touch,
 }

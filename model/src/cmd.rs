@@ -16,6 +16,7 @@ impl MapStr for Cmd {
             "mv" => Ok(Cmd::Mv),
             "new_connection" => Ok(Cmd::NewConnection),
             "new_user" => Ok(Cmd::NewUser),
+            "failure" => Ok(Cmd::Failure),
             "pwd" => Ok(Cmd::Pwd),
             "touch" => Ok(Cmd::Touch),
             _ => Err(()),
