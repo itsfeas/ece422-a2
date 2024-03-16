@@ -5,7 +5,7 @@ CREATE TABLE fnode (
     owner BIGINT,
     hash VARCHAR,
     parent BIGINT,
-    has_children BOOLEAN,
+    dir BOOLEAN,
     u SMALLINT,
     g SMALLINT,
     o SMALLINT,

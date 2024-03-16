@@ -2,7 +2,6 @@ use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, io::Error, rc::Rc,
 use futures::SinkExt;
 use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::net::{TcpListener, TcpStream};
-use log::info;
 use postgres::{Client, NoTls};
 use model::model::{AppMessage, Cmd};
 use tokio_tungstenite::tungstenite::Message;
@@ -13,6 +12,9 @@ use aes_gcm::{
     Aes256Gcm, Nonce, Key
 };
 use std::str::from_utf8;
+
+#[path = "./dao/dao.rs"]
+mod dao;
 
 // - https://github.com/snapview/tokio-tungstenite/blob/master/examples/echo-server.rs
 // - https://docs.rs/aes-gcm/latest/aes_gcm/
