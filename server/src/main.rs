@@ -58,14 +58,16 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Cli
         println!("SERIALIZED_MSG: {}", msg_serialized);
         let msg: AppMessage = handle_msg(encrypted, &mut key, msg_serialized);
         match msg.cmd {
-            Cmd::New => {
+            Cmd::NewConnection => {
                 key_exchange_sequence(&msg, &mut shared_secret, &mut key, &mut ws_stream).await;
                 encrypted = true;
             },
             Cmd::Login => {
                 let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
                 let pass = msg.data.get(1).expect("password not supplied!").to_owned();
-                dao::auth_user(&mut ((*pg_client).lock().unwrap()), user_name, pass);
+                let res = dao::auth_user(&mut ((*pg_client).lock().unwrap()), user_name, pass)
+                    .expect("could not perform auth_user query!");
+                authenticated = res;
             },
             _ => todo!()
         }
@@ -103,7 +105,7 @@ async fn key_exchange_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<
     println!("client_shared_key {:?}", key_arr);
     *key = Arc::new(Some(key_arr.into()));
     let reply = AppMessage{
-        cmd: Cmd::New,
+        cmd: Cmd::NewConnection,
         data: vec![serde_json::to_string(&server_public).unwrap()]
     };
     send_app_message(ws_stream, reply).await;
