@@ -78,6 +78,12 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Cli
                     },
                     false => {
                         dao::create_user(&mut ((*pg_client).lock().unwrap()), user_name, pass, None, false).expect("could not create user!");
+                        let response = AppMessage {
+                            cmd: Cmd::NewUser,
+                            data: Vec::new()
+                        };
+                        send_app_message(&mut ws_stream, &mut key, response).await;
+                        continue;
                     }
                 }
             },
