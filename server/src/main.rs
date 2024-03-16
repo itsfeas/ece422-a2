@@ -58,7 +58,8 @@ async fn accept_connection(stream: TcpStream) {
                 encrypted = true;
             },
             Cmd::Login => {
-
+                let username = msg.data.get(0);
+                let pass = msg.data.get(1);
             },
             _ => todo!()
         }
