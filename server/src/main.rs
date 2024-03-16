@@ -1,4 +1,4 @@
-use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, io::Error, rc::Rc, sync::Arc};
+use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, io::Error, rc::Rc, sync::{Arc, Mutex}};
 use futures::SinkExt;
 use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -14,11 +14,16 @@ use aes_gcm::{
 };
 use std::str::from_utf8;
 
+#[path ="./dao/dao.rs"]
+mod dao;
+
 // - https://github.com/snapview/tokio-tungstenite/blob/master/examples/echo-server.rs
 // - https://docs.rs/aes-gcm/latest/aes_gcm/
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // let mut client = Client::connect("host=localhost user=postgres", NoTls)?;
+    let pg_client = Arc::new(Mutex::new(
+        Client::connect("host=localhost user=postgres", NoTls)
+            .expect("Could not form connection with DB!")));
     // println!("Hello, world!");
     let addr = "127.0.0.1:8080";
     // let sock = TcpListener
@@ -26,12 +31,12 @@ async fn main() -> Result<(), Error> {
     let listener = sock.expect("failed to bind");
     println!("listening on: {}", addr);
     while let Ok((stream, _)) = listener.accept().await {
-        tokio::spawn(accept_connection(stream));
+        tokio::spawn(accept_connection(stream, pg_client.clone()));
     }
     Ok(())
 }
 
-async fn accept_connection(stream: TcpStream) {
+async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Client>>) {
     let addr = stream.peer_addr().expect("could not find peer address!");
     println!("peer: {}", addr);
     
@@ -58,15 +63,16 @@ async fn accept_connection(stream: TcpStream) {
                 encrypted = true;
             },
             Cmd::Login => {
-                let username = msg.data.get(0);
-                let pass = msg.data.get(1);
+                let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
+                let pass = msg.data.get(1).expect("password not supplied!").to_owned();
+                dao::auth_user(&mut ((*pg_client).lock().unwrap()), user_name, pass);
             },
             _ => todo!()
         }
     }
 }
 
-fn encrypt_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> String {
+fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> String {
     let msg_serialized = serde_json::to_string(msg).unwrap();
     let cipher = Aes256Gcm::new(&(**key).unwrap());
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
