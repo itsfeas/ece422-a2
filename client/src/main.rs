@@ -37,8 +37,15 @@ fn main() -> Result<(), Error> {
 
         // obtain input from command line 
         let cmd_input = String::from("new"); 
+
+        let app_message = command_parser(cmd_input).unwrap();  
+        println!("DEBUG: {:?}", app_message); 
+
+        if app_message.cmd == Cmd::NewConnection {
+            // setup_connection
+        }
         
-        try_login(cmd_input, &mut socket); 
+        // try_login(cmd_input, &mut socket); 
 
 
     }
@@ -46,15 +53,17 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
+// fn setup_connection<S>(socket: &mut WebSocket<S>) where S: std::io::Read, S: std::io::Write {
+//     let shared_secret = key_exchange(socket); 
+//     println!("DEBUG: {:?}", Vec::from(shared_secret.as_ref()));  
+// }
 
 fn try_login<S>(input_str: String, socket: &mut WebSocket<S>) -> LoginStatus where S: std::io::Read, S: std::io::Write  {
-    let app_message = command_parser(input_str).unwrap();  
-    println!("DEBUG: {:?}", app_message); 
+
     
-    if app_message.cmd == Cmd::NewConnection {
-        println!("DEBUG: reached"); 
-        let shared_secret = key_exchange(socket); 
-        println!("DEBUG: {:?}", Vec::from(shared_secret.as_ref()));  
+    
+        // println!("DEBUG: reached"); 
+        
         // user types username 
         let username = String::from("itsnotfeas"); 
 
@@ -64,9 +73,8 @@ fn try_login<S>(input_str: String, socket: &mut WebSocket<S>) -> LoginStatus whe
         // send to socket (username, encrypted username)
 
         return LoginStatus::New(username); 
-    }
 
-    LoginStatus::Failed("".to_string())
+    // LoginStatus::Failed("".to_string())
     // else
 }
 
