@@ -1,12 +1,16 @@
-use std::io::Error; 
+use std::{io::Error, str::from_utf8}; 
 use tungstenite::{connect, Message, WebSocket}; 
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use url::Url; 
 use serde::{Serialize, Deserialize};
 use futures::Stream;
 use model::{cmd::MapStr, model::{AppMessage, Cmd}};
-// use serde::{serialize, deserialize}; 
-
+use rand_core::OsRng;
+// use serde::{serialize, deserialize};
+use aes_gcm::{
+    aead::{Aead, AeadCore, KeyInit},
+    Aes256Gcm, Nonce, Key
+};
 
 enum LoginStatus {
     New(String),
@@ -33,8 +37,15 @@ fn main() -> Result<(), Error> {
 
         // obtain input from command line 
         let cmd_input = String::from("new"); 
+
+        let app_message = command_parser(cmd_input).unwrap();  
+        println!("DEBUG: {:?}", app_message); 
+
+        if app_message.cmd == Cmd::NewConnection {
+            // setup_connection
+        }
         
-        try_login(cmd_input, &mut socket); 
+        // try_login(cmd_input, &mut socket); 
 
 
     }
@@ -42,27 +53,37 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
+// fn setup_connection<S>(socket: &mut WebSocket<S>) where S: std::io::Read, S: std::io::Write {
+//     let shared_secret = key_exchange(socket); 
+//     println!("DEBUG: {:?}", Vec::from(shared_secret.as_ref()));  
+// }
 
 fn try_login<S>(input_str: String, socket: &mut WebSocket<S>) -> LoginStatus where S: std::io::Read, S: std::io::Write  {
-    let app_message = command_parser(input_str).unwrap();  
-    println!("DEBUG: {:?}", app_message); 
+
     
-    if app_message.cmd == Cmd::NewConnection {
-        println!("DEBUG: reached"); 
-        let shared_secret = key_exchange(socket); 
-        println!("DEBUG: {:?}", Vec::from(shared_secret.as_ref()));  
+    
+        // println!("DEBUG: reached"); 
+        
         // user types username 
         let username = String::from("itsnotfeas"); 
 
-        // encrypt 
+        // encrypt
+        
         
         // send to socket (username, encrypted username)
 
         return LoginStatus::New(username); 
-    }
 
-    LoginStatus::Failed("".to_string())
+    // LoginStatus::Failed("".to_string())
     // else
+}
+
+fn encrypt_msg(key: &mut Option<Key<Aes256Gcm>>, msg: &AppMessage) -> String {
+    let msq_serial = serde_json::to_string(msg).unwrap();
+    let cipher = Aes256Gcm::new(&(key).unwrap());
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let ciphertext = cipher.encrypt(&nonce, msq_serial.as_ref()).unwrap();
+    from_utf8(&ciphertext).unwrap().to_string()
 }
 
 fn command_parser(input_str: String) -> Result<AppMessage, String> {
