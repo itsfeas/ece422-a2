@@ -1,9 +1,9 @@
-use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, io::Error, rc::Rc, sync::{Arc, Mutex}};
+use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, io::Error, rc::Rc, sync::{Arc}};
 use futures::SinkExt;
 use futures_util::{future, StreamExt, TryStreamExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::{net::{TcpListener, TcpStream}, sync::Mutex};
 use log::info;
-use postgres::{Client, NoTls};
+use tokio_postgres::{Client, NoTls};
 use model::model::{AppMessage, Cmd};
 use tokio_tungstenite::tungstenite::{http::response, Message};
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
@@ -21,9 +21,15 @@ mod dao;
 // - https://docs.rs/aes-gcm/latest/aes_gcm/
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let pg_client = Arc::new(Mutex::new(
-        Client::connect("host=localhost user=postgres", NoTls)
-            .expect("Could not form connection with DB!")));
+    let (client, connection) =
+        tokio_postgres::connect("host=localhost user=postgres", NoTls).await
+        .expect("Could not form connection with DB!");
+    let pg_client = Arc::new(Mutex::new(client));
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("connection error: {}", e);
+        }
+    });
     // println!("Hello, world!");
     let addr = "127.0.0.1:8080";
     // let sock = TcpListener
@@ -36,7 +42,7 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Client>>) {
+async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
     let addr = stream.peer_addr().expect("could not find peer address!");
     println!("peer: {}", addr);
     
@@ -65,7 +71,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Cli
             Cmd::NewUser => {
                 let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
                 let pass = msg.data.get(1).expect("password not supplied!").to_owned();
-                let does_user_exist = dao::get_user(&mut ((*pg_client).lock().unwrap()), user_name.clone())
+                let does_user_exist = dao::get_user(pg_client.clone(), user_name.clone()).await
                     .expect("could not perform get_user query!");
                 match does_user_exist.is_none() {
                     true => {
@@ -77,7 +83,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Cli
                         continue;
                     },
                     false => {
-                        dao::create_user(&mut ((*pg_client).lock().unwrap()), user_name, pass, None, false).expect("could not create user!");
+                        dao::create_user(pg_client.clone(), user_name, pass, None, false).await.expect("could not create user!");
                         let response = AppMessage {
                             cmd: Cmd::NewUser,
                             data: Vec::new()
@@ -90,10 +96,13 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Cli
             Cmd::Login => {
                 let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
                 let pass = msg.data.get(1).expect("password not supplied!").to_owned();
-                let res = dao::auth_user(&mut ((*pg_client).lock().unwrap()), user_name, pass)
+                let res = dao::auth_user(pg_client.clone(), user_name, pass).await
                     .expect("could not perform auth_user query!");
                 authenticated = res;
             },
+            Cmd::Cd => {
+                
+            }
             _ => todo!()
         }
     }
