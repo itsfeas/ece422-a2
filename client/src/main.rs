@@ -41,9 +41,34 @@ fn main() -> Result<(), Error> {
         let app_message = command_parser(cmd_input).unwrap();  
         println!("DEBUG: {:?}", app_message); 
 
-        if app_message.cmd == Cmd::NewConnection {
-            // setup_connection
-        }
+        match app_message.cmd {
+            Cmd::NewConnection => {
+
+            }, 
+            Cmd::Echo => {
+
+            }, 
+            Cmd::Cat => {
+
+            }, 
+            Cmd::Login => {
+
+            }, 
+            Cmd::Cd => {}, 
+            Cmd::Ls => {},  
+            Cmd::Mkdir => {}, 
+            Cmd::Mv => {}, 
+            Cmd::NewUser => {}, 
+            Cmd::Touch | Cmd::Pwd | Cmd::Failure => todo!()
+        }; 
+
+
+
+        // if app_message.cmd == Cmd::NewConnection {
+        //     // setup_connection
+        // } else if app_message.cmd == Cmd::Echo {
+        //
+        // }
         
         // try_login(cmd_input, &mut socket); 
 
@@ -135,5 +160,11 @@ fn key_exchange<S>(socket: &mut WebSocket<S>) -> SharedSecret where S: std::io::
     return client_shared_key; 
 
     // deffie-hellmamn
+
+}
+
+
+
+fn echo_encrypted(filename: String, file_contents: Vec<String>) {
 
 }
