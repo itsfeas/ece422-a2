@@ -1,9 +1,12 @@
 use std::fmt::format;
 
+use aes_gcm_siv::{
+    aead::{Aead, KeyInit},
+    Aes256GcmSiv, Nonce
+};
 use postgres::{Client, NoTls};
 use argon2::{
     password_hash::{
-        rand_core::OsRng,
         PasswordHash, PasswordHasher, PasswordVerifier, SaltString
     },
     Argon2
@@ -30,11 +33,20 @@ fn remove_file(client: &mut Client, path: String) -> Result<String, String> {
 
 pub fn salt_pass(pass: String) -> Result<String, String> {
     let b_pass = pass.as_bytes();
-    let salt = SaltString::generate(&mut OsRng);
+    let salt = SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
     let argon2 = Argon2::default();
     match argon2.hash_password(b_pass, &salt) {
         Ok(p) => Ok(p.to_string()),
-        Err(_) => Err("Error".into()),
+        Err(_) => Err("Error with salting pass".into()),
+    }
+}
+
+// https://docs.rs/aes-gcm-siv/0.11.1/aes_gcm_siv/
+pub fn key_gen() -> Result<String, ()> {
+    let key = Aes256GcmSiv::generate_key(&mut aes_gcm_siv::aead::OsRng);
+    match serde_json::to_string(&key.to_vec()) {
+        Ok(s) => Ok(s),
+        Err(_) => Err(()),
     }
 }
 
@@ -57,8 +69,9 @@ pub fn create_user(client: &mut Client, user_name: String, pass: String, group: 
         Ok(salt) => salt,
         Err(_) => return Err(format!("couldn't hash user pass while creating user!")),
     };
-    let e = client.execute("INSERT INTO users values (user_name, group, salt, false) VALUES ($1, $2, $3, $4)",
-    &[&user_name, &group, &salt, &is_admin]);
+    let key = key_gen().expect("could not serialize symmetric key!");
+    let e = client.execute("INSERT INTO users values (user_name, group, salt, false, key) VALUES ($1, $2, $3, $4, $5)",
+    &[&user_name, &group, &salt, &is_admin, &key]);
     match e {
         Ok(_) => Ok(user_name),
         Err(_) => Err(format!("couldn't create user!")),
@@ -97,7 +110,7 @@ pub fn remove_user_from_group(client: &mut Client, user_name: String, group_name
 }
 
 pub fn get_f_node(client: &mut Client, path: String) -> Result<Option<FNode>, String> {
-    let e = client.query_opt("SELECT id, name, path, owner, hash, parent, dir, u, g, o, children FROM fnode WHERE path = $1", &[&path]);
+    let e = client.query_opt("SELECT id, name, path, owner, hash, key, parent, dir, u, g, o, children FROM fnode WHERE path = $1", &[&path]);
     match e {
         Ok(Some(row)) => {
             let fnode = FNode {
@@ -106,12 +119,13 @@ pub fn get_f_node(client: &mut Client, path: String) -> Result<Option<FNode>, St
                 path: row.get(2),
                 owner: row.get(3),
                 hash: row.get(4),
-                parent: row.get(5),
-                dir: row.get(6),
-                u: row.get(7),
-                g: row.get(8),
-                o: row.get(9),
-                children: row.get(10),
+                key: row.get(5),
+                parent: row.get(6),
+                dir: row.get(7),
+                u: row.get(8),
+                g: row.get(9),
+                o: row.get(10),
+                children: row.get(11),
             };
             Ok(Some(fnode))
         }

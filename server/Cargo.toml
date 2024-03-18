@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 aes-gcm = "0.10.3"
+aes-gcm-siv = "0.11.1"
 argon2 = "0.5.3"
 futures = "0.3.30"
 futures-util = "0.3.30"
