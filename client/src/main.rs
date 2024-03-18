@@ -47,7 +47,7 @@ fn try_login<S>(input_str: String, socket: &mut WebSocket<S>) -> LoginStatus whe
     let app_message = command_parser(input_str).unwrap();  
     println!("DEBUG: {:?}", app_message); 
     
-    if app_message.cmd == Cmd::New {
+    if app_message.cmd == Cmd::NewConnection {
         println!("DEBUG: reached"); 
         let shared_secret = key_exchange(socket); 
         println!("DEBUG: {:?}", Vec::from(shared_secret.as_ref()));  
@@ -91,7 +91,7 @@ fn key_exchange<S>(socket: &mut WebSocket<S>) -> SharedSecret where S: std::io::
     //
     
     let app_message = AppMessage {
-        cmd: Cmd::New, 
+        cmd: Cmd::NewConnection, 
         data: vec![serde_json::to_string(&client_public).unwrap()]
     }; 
 

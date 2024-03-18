@@ -1,10 +1,11 @@
-use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, io::Error, rc::Rc, sync::Arc};
+use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, io::Error, rc::Rc, sync::{Arc, Mutex}};
 use futures::SinkExt;
 use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::net::{TcpListener, TcpStream};
+use log::info;
 use postgres::{Client, NoTls};
 use model::model::{AppMessage, Cmd};
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::{http::response, Message};
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use rand_core::OsRng;
 use aes_gcm::{
@@ -13,14 +14,16 @@ use aes_gcm::{
 };
 use std::str::from_utf8;
 
-#[path = "./dao/dao.rs"]
+#[path ="./dao/dao.rs"]
 mod dao;
 
 // - https://github.com/snapview/tokio-tungstenite/blob/master/examples/echo-server.rs
 // - https://docs.rs/aes-gcm/latest/aes_gcm/
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // let mut client = Client::connect("host=localhost user=postgres", NoTls)?;
+    let pg_client = Arc::new(Mutex::new(
+        Client::connect("host=localhost user=postgres", NoTls)
+            .expect("Could not form connection with DB!")));
     // println!("Hello, world!");
     let addr = "127.0.0.1:8080";
     // let sock = TcpListener
@@ -28,12 +31,12 @@ async fn main() -> Result<(), Error> {
     let listener = sock.expect("failed to bind");
     println!("listening on: {}", addr);
     while let Ok((stream, _)) = listener.accept().await {
-        tokio::spawn(accept_connection(stream));
+        tokio::spawn(accept_connection(stream, pg_client.clone()));
     }
     Ok(())
 }
 
-async fn accept_connection(stream: TcpStream) {
+async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Client>>) {
     let addr = stream.peer_addr().expect("could not find peer address!");
     println!("peer: {}", addr);
     
@@ -44,6 +47,7 @@ async fn accept_connection(stream: TcpStream) {
     let mut key: Arc<Option<Key<Aes256Gcm>>> = Arc::new(None);
 
     let mut encrypted = false;
+    let mut authenticated = false;
     while let Some(m) = ws_stream.next().await {
         let m = m.expect("panicked while checking validity of message");
         if !m.is_text() && m.is_binary() {
@@ -54,19 +58,62 @@ async fn accept_connection(stream: TcpStream) {
         println!("SERIALIZED_MSG: {}", msg_serialized);
         let msg: AppMessage = handle_msg(encrypted, &mut key, msg_serialized);
         match msg.cmd {
-            Cmd::New => {
-                encrypt_sequence(&msg, &mut shared_secret, &mut key, &mut ws_stream).await;
+            Cmd::NewConnection => {
+                key_exchange_sequence(&msg, &mut shared_secret, &mut key, &mut ws_stream).await;
                 encrypted = true;
+            },
+            Cmd::NewUser => {
+                let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
+                let pass = msg.data.get(1).expect("password not supplied!").to_owned();
+                let does_user_exist = dao::get_user(&mut ((*pg_client).lock().unwrap()), user_name.clone())
+                    .expect("could not perform get_user query!");
+                match does_user_exist.is_none() {
+                    true => {
+                        let response = AppMessage {
+                            cmd: Cmd::Failure,
+                            data: Vec::new()
+                        };
+                        send_app_message(&mut ws_stream, &mut key, response).await;
+                        continue;
+                    },
+                    false => {
+                        dao::create_user(&mut ((*pg_client).lock().unwrap()), user_name, pass, None, false).expect("could not create user!");
+                        let response = AppMessage {
+                            cmd: Cmd::NewUser,
+                            data: Vec::new()
+                        };
+                        send_app_message(&mut ws_stream, &mut key, response).await;
+                        continue;
+                    }
+                }
+            },
+            Cmd::Login => {
+                let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
+                let pass = msg.data.get(1).expect("password not supplied!").to_owned();
+                let res = dao::auth_user(&mut ((*pg_client).lock().unwrap()), user_name, pass)
+                    .expect("could not perform auth_user query!");
+                authenticated = res;
             },
             _ => todo!()
         }
     }
 }
 
+fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> Result<String, ()> {
+    let msg_serialized = serde_json::to_string(msg).unwrap();
+    let cipher = Aes256Gcm::new(&(*key).unwrap());
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let encrypt = cipher.encrypt(&nonce, msg_serialized.as_ref());
+    match encrypt {
+        Ok(e) => Ok(from_utf8(&e).unwrap().to_string()),
+        Err(_) => Err(()),
+    }
+}
+
 fn handle_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg_serialized: String) -> AppMessage {
     match encrypted {
         true => {
-            let cipher = Aes256Gcm::new(&(**key).unwrap());
+            let cipher = Aes256Gcm::new(&(*key).unwrap());
             let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
             let plaintext = cipher.decrypt(&nonce, msg_serialized.as_ref()).unwrap();
             let plaintext_str = from_utf8(&plaintext).unwrap();
@@ -76,23 +123,35 @@ fn handle_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg_serial
     }
 }
 
-async fn encrypt_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<Arc<SharedSecret>>>, key: &mut Arc<Option<Key<Aes256Gcm>>>, ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>) {
+async fn key_exchange_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<Arc<SharedSecret>>>, key: &mut Arc<Option<Key<Aes256Gcm>>>, ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>) {
     let server_secret = EphemeralSecret::random_from_rng(OsRng);
     let server_public = PublicKey::from(&server_secret);
     let client_public: PublicKey = serde_json::from_str(&msg.data[0]).unwrap();
     *shared_secret = Arc::new(Some(Arc::new(server_secret.diffie_hellman(&client_public))));
-    // let key_arr = (*(shared_secret)).unwrap().to_bytes();
     let ref_cell = Option::clone(shared_secret.as_ref());
     let key_arr: [u8; 32] = ref_cell.unwrap().to_bytes();
     println!("client_shared_key {:?}", key_arr);
     *key = Arc::new(Some(key_arr.into()));
     let reply = AppMessage{
-        cmd: Cmd::New,
+        cmd: Cmd::NewConnection,
         data: vec![serde_json::to_string(&server_public).unwrap()]
     };
-    send_app_message(ws_stream, reply).await;
+    ws_stream.send(Message::text(serde_json::to_string(&reply).unwrap())).await.unwrap();
 }
 
-async fn send_app_message(ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>, reply: AppMessage) {
-    ws_stream.send(Message::text(serde_json::to_string(&reply).unwrap())).await.unwrap();
+// async fn login_sequence(msg: &AppMessage, ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>) -> Result<bool, ()> {
+//     let salt = SaltString::generate(&mut OsRng);
+//     let argon2 = Argon2::default();
+//     let password_hash = argon2.hash_password(msg.data[0], &salt)?.to_string();
+
+//     let reply = AppMessage{
+//         cmd: Cmd::New,
+//         data: vec![serde_json::to_string(&server_public).unwrap()]
+//     };
+//     send_app_message(ws_stream, reply).await;
+// }
+
+async fn send_app_message(ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>, resp: AppMessage) {
+    let resp_encrypted = encrypt_msg(key, &resp);
+    ws_stream.send(Message::text(serde_json::to_string(&resp_encrypted).unwrap())).await.unwrap();
 }

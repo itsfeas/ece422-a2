@@ -43,7 +43,9 @@ pub enum Cmd {
     Ls,
     Mkdir,
     Mv,
-    New,
+    NewConnection,
+    NewUser,
+    Failure,
     Pwd,
     Touch,
 }
