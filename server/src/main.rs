@@ -5,7 +5,7 @@ use tokio::net::{TcpListener, TcpStream};
 use log::info;
 use postgres::{Client, NoTls};
 use model::model::{AppMessage, Cmd};
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::{http::response, Message};
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use rand_core::OsRng;
 use aes_gcm::{
@@ -62,6 +62,31 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Cli
                 key_exchange_sequence(&msg, &mut shared_secret, &mut key, &mut ws_stream).await;
                 encrypted = true;
             },
+            Cmd::NewUser => {
+                let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
+                let pass = msg.data.get(1).expect("password not supplied!").to_owned();
+                let does_user_exist = dao::get_user(&mut ((*pg_client).lock().unwrap()), user_name.clone())
+                    .expect("could not perform get_user query!");
+                match does_user_exist.is_none() {
+                    true => {
+                        let response = AppMessage {
+                            cmd: Cmd::Failure,
+                            data: Vec::new()
+                        };
+                        send_app_message(&mut ws_stream, &mut key, response).await;
+                        continue;
+                    },
+                    false => {
+                        dao::create_user(&mut ((*pg_client).lock().unwrap()), user_name, pass, None, false).expect("could not create user!");
+                        let response = AppMessage {
+                            cmd: Cmd::NewUser,
+                            data: Vec::new()
+                        };
+                        send_app_message(&mut ws_stream, &mut key, response).await;
+                        continue;
+                    }
+                }
+            },
             Cmd::Login => {
                 let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
                 let pass = msg.data.get(1).expect("password not supplied!").to_owned();
@@ -74,12 +99,15 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Cli
     }
 }
 
-fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> String {
+fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> Result<String, ()> {
     let msg_serialized = serde_json::to_string(msg).unwrap();
     let cipher = Aes256Gcm::new(&(*key).unwrap());
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    let encrypt = cipher.encrypt(&nonce, msg_serialized.as_ref()).unwrap();
-    from_utf8(&encrypt).unwrap().to_string()
+    let encrypt = cipher.encrypt(&nonce, msg_serialized.as_ref());
+    match encrypt {
+        Ok(e) => Ok(from_utf8(&e).unwrap().to_string()),
+        Err(_) => Err(()),
+    }
 }
 
 fn handle_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg_serialized: String) -> AppMessage {
@@ -108,7 +136,7 @@ async fn key_exchange_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<
         cmd: Cmd::NewConnection,
         data: vec![serde_json::to_string(&server_public).unwrap()]
     };
-    send_app_message(ws_stream, reply).await;
+    ws_stream.send(Message::text(serde_json::to_string(&reply).unwrap())).await.unwrap();
 }
 
 // async fn login_sequence(msg: &AppMessage, ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>) -> Result<bool, ()> {
@@ -123,6 +151,7 @@ async fn key_exchange_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<
 //     send_app_message(ws_stream, reply).await;
 // }
 
-async fn send_app_message(ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>, reply: AppMessage) {
-    ws_stream.send(Message::text(serde_json::to_string(&reply).unwrap())).await.unwrap();
+async fn send_app_message(ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>, resp: AppMessage) {
+    let resp_encrypted = encrypt_msg(key, &resp);
+    ws_stream.send(Message::text(serde_json::to_string(&resp_encrypted).unwrap())).await.unwrap();
 }

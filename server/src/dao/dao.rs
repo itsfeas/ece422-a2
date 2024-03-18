@@ -52,7 +52,7 @@ pub fn auth_user(client: &mut Client, user_name: String, pass: String) -> Result
 }
 
 //used https://docs.rs/argon2/latest/argon2/
-pub fn create_user(client: &mut Client, user_name: String, pass: String, group: String, is_admin: bool) -> Result<String, String>{
+pub fn create_user(client: &mut Client, user_name: String, pass: String, group: Option<String>, is_admin: bool) -> Result<String, String>{
     let salt = match salt_pass(pass){
         Ok(salt) => salt,
         Err(_) => return Err(format!("couldn't hash user pass while creating user!")),
