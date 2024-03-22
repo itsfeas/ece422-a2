@@ -74,13 +74,15 @@ fn main() -> Result<(), Error> {
 
                 if app_message.cmd == Cmd::NewConnection {
                     // setup_connection
-                } else if app_message.cmd == Cmd::Echo {
+                } else if app_message.cmd == Cmd::Echo { 
+                    // AppMessage: echo <current path> <echo message> [">" <path to file to echo to>] 
 
                 } else if app_message.cmd == Cmd::Cd { 
                     // AppMessage: cd <current path> <path to cd to>, since the server searches
                     // from root 
-                    
-                    
+                } else if app_message.cmd == Cmd::Touch {
+                    // AppMessage: touch <current path> <new file>, since the server searches
+                    // from root 
                 }
 
 
@@ -217,7 +219,7 @@ fn recv_decrypt<S>(socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>, nonce: N
 fn cd<S>(app_message: AppMessage, 
          socket: &mut WebSocket<S>, 
          encryption_key: &mut Key<Aes256Gcm>, 
-         current_path: &mut Path)  where S: std::io::Read, S: std::io::Write { 
+         current_path: &mut Path) -> Result<(), String>  where S: std::io::Read, S: std::io::Write { 
 
     let target_dir: String = app_message.data[0].clone(); 
     let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
@@ -229,6 +231,7 @@ fn cd<S>(app_message: AppMessage,
     } else {
         println!("Directory does not exist"); 
     }
+    return Ok(()); 
 
 }
 
@@ -249,7 +252,49 @@ fn ls<S>(app_message: AppMessage,
     return Err(String::from("Something unexpected happened when trying to Ls")); 
 
 }
- 
+
+
+
+fn touch<S>(app_message: AppMessage, 
+        socket: &mut WebSocket<S>, 
+        encryption_key: &mut Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write {
+
+    let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
+
+    let recv_app_message = recv_decrypt(socket, encryption_key, nonce).expect("Recv decrypt failed"); 
+    if recv_app_message.cmd == Cmd::Touch {
+        return Ok(());
+    } else if recv_app_message.cmd == Cmd::Failure {
+        println!("{}", recv_app_message.data[0]);
+    } 
+    return Ok(()); 
+}
+
+
+
+
+
+fn echo<S>(app_message: AppMessage, 
+        socket: &mut WebSocket<S>, 
+        encryption_key: &mut Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write {
+    if app_message.data.len() == 2 {
+        println!("{}", &app_message.data[1]);
+        return Ok(()); 
+    }
+    let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
+
+    let recv_app_message = recv_decrypt(socket, encryption_key, nonce).expect("Recv decrypt failed"); 
+    if recv_app_message.cmd == Cmd::Touch {
+        return Ok(());
+    } else if recv_app_message.cmd == Cmd::Failure {
+        println!("{}", recv_app_message.data[0]);
+    } 
+    return Ok(()); 
+}
+
+
+
+
 /*
  * cmd_arg: argument of the cd command. For example: if command is cd /home/user/f1, 
  *      then cmd_arg = "/home/user/f1"
@@ -274,12 +319,4 @@ fn process_local_cd_path(cmd_arg: String, current_path: &mut Path) -> Result<(),
 }
 
 
-fn touch(filename: String, key: &Key<Aes256Gcm>) -> Result<(), String >{
 
-
-    Ok(())
-}
-
-fn echo(filename: String, file_contents: Vec<String>) {
-    
-}
