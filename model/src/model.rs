@@ -7,7 +7,6 @@ pub struct FNode {
     pub path: String,
     pub owner: String,
     pub hash: String,
-    pub key: String,
     pub parent: String,
     pub dir: bool,
     pub u: i8,
@@ -23,6 +22,7 @@ pub struct User {
     pub id: String,
     pub user_name: String,
     pub group: String,
+    pub key: String,
     pub salt: String,
     pub is_admin: bool
 }
