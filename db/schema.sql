@@ -4,7 +4,6 @@ CREATE TABLE fnode (
     path VARCHAR,
     owner BIGINT,
     hash VARCHAR,
-    key VARCHAR,
     parent BIGINT,
     dir BOOLEAN,
     u SMALLINT,
@@ -17,6 +16,7 @@ CREATE TABLE users (
     id BIGSERIAL PRIMARY KEY,
     user_name VARCHAR,
     group BIGINT FOREIGN KEY groups.id,
+    key VARCHAR,
     salt VARCHAR,
     is_admin BOOLEAN
 );

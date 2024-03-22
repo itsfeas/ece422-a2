@@ -1,11 +1,11 @@
-use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, io::Error, rc::Rc, sync::{Arc}};
+use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, io::Error, ops::ControlFlow, rc::Rc, sync::Arc};
 use futures::SinkExt;
 use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::{net::{TcpListener, TcpStream}, sync::Mutex};
 use log::info;
 use tokio_postgres::{Client, NoTls};
-use model::model::{AppMessage, Cmd};
-use tokio_tungstenite::tungstenite::{http::response, Message};
+use model::model::{AppMessage, Cmd, Path, FNode};
+use tokio_tungstenite::{tungstenite::{http::response, Message}, WebSocketStream};
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use rand_core::OsRng;
 use aes_gcm::{
@@ -51,6 +51,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
 
     let mut shared_secret: Arc<Option<Arc<SharedSecret>>> = Arc::new(None);
     let mut key: Arc<Option<Key<Aes256Gcm>>> = Arc::new(None);
+    let mut curr_user : Arc<String> = Arc::new(String::new());
 
     let mut encrypted = false;
     let mut authenticated = false;
@@ -96,16 +97,83 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
             Cmd::Login => {
                 let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
                 let pass = msg.data.get(1).expect("password not supplied!").to_owned();
-                let res = dao::auth_user(pg_client.clone(), user_name, pass).await
+                let res = dao::auth_user(pg_client.clone(), user_name.clone(), pass).await
                     .expect("could not perform auth_user query!");
+                curr_user = Arc::new(user_name.clone());
                 authenticated = res;
             },
             Cmd::Cd => {
-                
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let target_path = msg.data.get(1).unwrap();
+                if f_node.children.contains(target_path) {
+                    let msg = AppMessage {
+                        cmd: Cmd::Cd,
+                        data: vec![target_path.clone()],
+                    };
+                    send_app_message(&mut ws_stream, &mut key, msg).await;
+                    continue;
+                }
+            },
+            Cmd::Ls => {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let msg = AppMessage {
+                    cmd: Cmd::Ls,
+                    data: f_node.children,
+                };
+                send_app_message(&mut ws_stream, &mut key, msg).await;
+            },
+            Cmd::Touch => {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
             }
             _ => todo!()
         }
     }
+}
+
+async fn get_and_check_path(msg: &AppMessage, pg_client: &Arc<Mutex<Client>>, ws_stream: &mut WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>) -> Option<(Path, String, FNode)> {
+    let path: Path = serde_json::from_str(msg.data.get(0).unwrap()).unwrap();
+    let path_str = path_to_str(path.clone());
+    let res = dao::get_f_node(pg_client.clone(), path_str.clone()+msg.data.get(1).unwrap()).await
+        .expect("could not perform get_f_node query!");
+    let f_node = match check_curr_path(res, ws_stream, key).await {
+        Some(value) => value,
+        None => return None,
+    };
+    Some((path, path_str, f_node))
+}
+
+async fn check_curr_path(res: Option<FNode>, ws_stream: &mut WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>) -> Option<FNode> {
+    let f_node = match res {
+        Some(f_node) => {
+            f_node
+        },
+        None => {
+            let msg = AppMessage {
+                cmd: Cmd::Failure,
+                data: vec!["Current path does not exist!".to_string()],
+            };
+            send_app_message(ws_stream, key, msg).await;
+            return None;
+        },
+    };
+    if f_node.dir {
+        let msg = AppMessage {
+            cmd: Cmd::Failure,
+            data: vec!["Current path is not a directory!".to_string()],
+        };
+        send_app_message(ws_stream, key, msg).await;
+        return None;
+    }
+    Some(f_node)
 }
 
 fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> Result<String, ()> {
@@ -163,4 +231,12 @@ async fn key_exchange_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<
 async fn send_app_message(ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>, resp: AppMessage) {
     let resp_encrypted = encrypt_msg(key, &resp);
     ws_stream.send(Message::text(serde_json::to_string(&resp_encrypted).unwrap())).await.unwrap();
+}
+
+fn path_to_str(path: Path) -> String {
+    let mut path_str: String = path.path[0].1.clone();
+    path.path[1..].into_iter()
+        .map(|t| t.1.clone()+"/")
+        .for_each(|s| path_str+= &s);
+    path_str
 }
