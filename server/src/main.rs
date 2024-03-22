@@ -103,15 +103,11 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 authenticated = res;
             },
             Cmd::Cd => {
-                let path: Path = serde_json::from_str(msg.data.get(0).unwrap()).unwrap();
-                let path_str = path_to_str(path);
-                let target_path = msg.data.get(1).unwrap();
-                let res = dao::get_f_node(pg_client.clone(), path_str+msg.data.get(1).unwrap()).await
-                    .expect("could not perform get_f_node query!");
-                let f_node = match check_curr_path(res, &mut ws_stream, &mut key).await {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
                     Some(value) => value,
                     None => continue,
                 };
+                let target_path = msg.data.get(1).unwrap();
                 if f_node.children.contains(target_path) {
                     let msg = AppMessage {
                         cmd: Cmd::Cd,
@@ -122,11 +118,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 }
             },
             Cmd::Ls => {
-                let path: Path = serde_json::from_str(msg.data.get(0).unwrap()).unwrap();
-                let path_str = path_to_str(path);
-                let res = dao::get_f_node(pg_client.clone(), path_str+msg.data.get(1).unwrap()).await
-                    .expect("could not perform get_f_node query!");
-                let f_node = match check_curr_path(res, &mut ws_stream, &mut key).await {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
                     Some(value) => value,
                     None => continue,
                 };
@@ -135,10 +127,28 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     data: f_node.children,
                 };
                 send_app_message(&mut ws_stream, &mut key, msg).await;
+            },
+            Cmd::Touch => {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
             }
             _ => todo!()
         }
     }
+}
+
+async fn get_and_check_path(msg: &AppMessage, pg_client: &Arc<Mutex<Client>>, ws_stream: &mut WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>) -> Option<(Path, String, FNode)> {
+    let path: Path = serde_json::from_str(msg.data.get(0).unwrap()).unwrap();
+    let path_str = path_to_str(path.clone());
+    let res = dao::get_f_node(pg_client.clone(), path_str.clone()+msg.data.get(1).unwrap()).await
+        .expect("could not perform get_f_node query!");
+    let f_node = match check_curr_path(res, ws_stream, key).await {
+        Some(value) => value,
+        None => return None,
+    };
+    Some((path, path_str, f_node))
 }
 
 async fn check_curr_path(res: Option<FNode>, ws_stream: &mut WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>) -> Option<FNode> {

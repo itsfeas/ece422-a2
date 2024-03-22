@@ -58,7 +58,7 @@ pub struct AppMessage {
 }
 
 
-#[derive(Serialize, Deserialize, Debug)] 
+#[derive(Serialize, Deserialize, Debug, Clone)] 
 pub struct Path {
     pub path: Vec<(bool, String)>
 }
