@@ -71,8 +71,8 @@ pub async fn create_user(client: Arc<Mutex<Client>>, user_name: String, pass: St
         Err(_) => return Err(format!("couldn't hash user pass while creating user!")),
     };
     let key = key_gen().expect("could not serialize symmetric key!");
-    let e = client.lock().await.execute("INSERT INTO users values (user_name, group, salt, false, key) VALUES ($1, $2, $3, $4, $5)",
-    &[&user_name, &group, &salt, &is_admin, &key]).await;
+    let e = client.lock().await.execute("INSERT INTO users values (user_name, group, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
+    &[&user_name, &group, &salt, &key, &is_admin]).await;
     match e {
         Ok(_) => Ok(user_name),
         Err(_) => Err(format!("couldn't create user!")),
@@ -111,7 +111,7 @@ pub async fn remove_user_from_group(client: Arc<Mutex<Client>>, user_name: Strin
 }
 
 pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Option<FNode>, String> {
-    let e = client.lock().await.query_opt("SELECT id, name, path, owner, hash, key, parent, dir, u, g, o, children FROM fnode WHERE path = $1", &[&path]).await;
+    let e = client.lock().await.query_opt("SELECT id, name, path, owner, hash, parent, dir, u, g, o, children FROM fnode WHERE path = $1", &[&path]).await;
     match e {
         Ok(Some(row)) => {
             let fnode = FNode {
@@ -120,13 +120,12 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
                 path: row.get(2),
                 owner: row.get(3),
                 hash: row.get(4),
-                key: row.get(5),
-                parent: row.get(6),
-                dir: row.get(7),
-                u: row.get(8),
-                g: row.get(9),
-                o: row.get(10),
-                children: row.get(11),
+                parent: row.get(5),
+                dir: row.get(6),
+                u: row.get(7),
+                g: row.get(8),
+                o: row.get(9),
+                children: row.get(10),
             };
             Ok(Some(fnode))
         }

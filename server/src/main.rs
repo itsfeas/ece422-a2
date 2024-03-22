@@ -1,4 +1,4 @@
-use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, io::Error, ops::ControlFlow, rc::Rc, sync::Arc};
+use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, io::Error, ops::ControlFlow, rc::Rc, sync::Arc, vec};
 use futures::SinkExt;
 use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::{net::{TcpListener, TcpStream}, sync::Mutex};
@@ -133,6 +133,36 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     Some(value) => value,
                     None => continue,
                 };
+                let new_file_name = msg.data.get(1).unwrap();
+                let new_file = FNode {
+                    id: (-1).to_string(),
+                    name: new_file_name.clone(),
+                    path: path_str.clone()+&new_file_name.clone(),
+                    owner: (*curr_user).clone(),
+                    hash: "".to_string(),
+                    parent: path_str.clone()[..path_str.len()-2].to_string(),
+                    dir: false,
+                    u: 7,
+                    g: 0,
+                    o: 0,
+                    children: vec![],
+                };
+                let resp = match dao::add_file(pg_client.clone(), new_file).await {
+                    Ok(file_name) => {
+                        let encrypted_file = encrypt_str(&mut key, file_name).expect("could not encrypt file name!");
+                        AppMessage {
+                            cmd: Cmd::Touch,
+                            data: vec![encrypted_file],
+                        }
+                    },
+                    Err(_) => {
+                        AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["FNode could not be created!".to_string()],
+                        }
+                    },
+                };
+                send_app_message(&mut ws_stream, &mut key, resp).await;
             }
             _ => todo!()
         }
@@ -176,11 +206,16 @@ async fn check_curr_path(res: Option<FNode>, ws_stream: &mut WebSocketStream<Tcp
     Some(f_node)
 }
 
+
 fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> Result<String, ()> {
     let msg_serialized = serde_json::to_string(msg).unwrap();
+    encrypt_str(key, msg_serialized)
+}
+
+fn encrypt_str(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> Result<String, ()> {
     let cipher = Aes256Gcm::new(&(*key).unwrap());
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    let encrypt = cipher.encrypt(&nonce, msg_serialized.as_ref());
+    let encrypt = cipher.encrypt(&nonce, s.as_ref());
     match encrypt {
         Ok(e) => Ok(from_utf8(&e).unwrap().to_string()),
         Err(_) => Err(()),
