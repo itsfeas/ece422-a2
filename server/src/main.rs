@@ -124,7 +124,6 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
             Cmd::Ls => {
                 let path: Path = serde_json::from_str(msg.data.get(0).unwrap()).unwrap();
                 let path_str = path_to_str(path);
-                let target_path = msg.data.get(1).unwrap();
                 let res = dao::get_f_node(pg_client.clone(), path_str+msg.data.get(1).unwrap()).await
                     .expect("could not perform get_f_node query!");
                 let f_node = match check_curr_path(res, &mut ws_stream, &mut key).await {
