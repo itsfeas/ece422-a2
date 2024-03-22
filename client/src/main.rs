@@ -76,7 +76,10 @@ fn main() -> Result<(), Error> {
                     // setup_connection
                 } else if app_message.cmd == Cmd::Echo {
 
-                } else if app_message.cmd == Cmd::Cd {
+                } else if app_message.cmd == Cmd::Cd { 
+                    // AppMessage: cd <current path> <path to cd to>, since the server searches
+                    // from root 
+                    
                     
                 }
 
@@ -226,6 +229,24 @@ fn cd<S>(app_message: AppMessage,
     } else {
         println!("Directory does not exist"); 
     }
+
+}
+
+
+fn ls<S>(app_message: AppMessage, 
+        socket: &mut WebSocket<S>, 
+        encryption_key: &mut Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write {
+
+    let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
+
+    let recv_app_message = recv_decrypt(socket, encryption_key, nonce).expect("Recv decrypt failed"); 
+    if recv_app_message.cmd == Cmd::Ls {
+        recv_app_message.data.iter().for_each(|x| {
+            println!("{}", x); 
+        }); 
+        return Ok(());
+    }  
+    return Err(String::from("Something unexpected happened when trying to Ls")); 
 
 }
  
