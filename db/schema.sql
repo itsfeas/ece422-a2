@@ -4,6 +4,7 @@ CREATE TABLE fnode (
     path VARCHAR,
     owner BIGINT,
     hash VARCHAR,
+    key VARCHAR,
     parent BIGINT,
     dir BOOLEAN,
     u SMALLINT,
