@@ -55,3 +55,9 @@ pub struct AppMessage {
     pub cmd: Cmd,
     pub data: Vec<String>,
 }
+
+
+#[derive(Serialize, Deserialize, Debug)] 
+pub struct Path {
+    pub path: Vec<(bool, String)>
+}
