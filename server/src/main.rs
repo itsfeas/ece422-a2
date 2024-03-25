@@ -1,4 +1,4 @@
-use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, io::Error, ops::ControlFlow, rc::Rc, sync::Arc, vec};
+use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, hash::{self, Hasher}, io::Error, ops::ControlFlow, rc::Rc, sync::Arc, vec};
 use futures::SinkExt;
 use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::{net::{TcpListener, TcpStream}, sync::Mutex};
@@ -55,6 +55,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
 
     let mut encrypted = false;
     let mut authenticated = false;
+    let mut echo_accepting_data = false;
     while let Some(m) = ws_stream.next().await {
         let m = m.expect("panicked while checking validity of message");
         if !m.is_text() && m.is_binary() {
@@ -149,7 +150,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 };
                 let resp = match dao::add_file(pg_client.clone(), new_file).await {
                     Ok(file_name) => {
-                        let encrypted_file = encrypt_str(&mut key, file_name).expect("could not encrypt file name!");
+                        let encrypted_file = encrypt_string(&mut key, file_name).expect("could not encrypt file name!");
                         AppMessage {
                             cmd: Cmd::Touch,
                             data: vec![encrypted_file],
@@ -163,6 +164,17 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     },
                 };
                 send_app_message(&mut ws_stream, &mut key, resp).await;
+            },
+            Cmd::Echo => {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let file_data = msg.data.get(1).unwrap();
+                let additional_str = msg.data.get(2).unwrap();
+                let plaintext_str = unencrypt_string(&mut key, file_data).unwrap();
+                let new_file_str = plaintext_str.to_owned()+additional_str;
+                let encrypted_file_data = encrypt_string(&mut key, new_file_str).unwrap();
             }
             _ => todo!()
         }
@@ -209,10 +221,10 @@ async fn check_curr_path(res: Option<FNode>, ws_stream: &mut WebSocketStream<Tcp
 
 fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> Result<String, ()> {
     let msg_serialized = serde_json::to_string(msg).unwrap();
-    encrypt_str(key, msg_serialized)
+    encrypt_string(key, msg_serialized)
 }
 
-fn encrypt_str(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> Result<String, ()> {
+fn encrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> Result<String, ()> {
     let cipher = Aes256Gcm::new(&(*key).unwrap());
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let encrypt = cipher.encrypt(&nonce, s.as_ref());
@@ -225,13 +237,19 @@ fn encrypt_str(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> Result<Strin
 fn handle_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg_serialized: String) -> AppMessage {
     match encrypted {
         true => {
-            let cipher = Aes256Gcm::new(&(*key).unwrap());
-            let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-            let plaintext = cipher.decrypt(&nonce, msg_serialized.as_ref()).unwrap();
-            let plaintext_str = from_utf8(&plaintext).unwrap();
+            let plaintext_str = unencrypt_string(key, &msg_serialized).unwrap();
             serde_json::from_str(&plaintext_str).unwrap()
         },
         false => serde_json::from_str(&msg_serialized).unwrap(),
+    }
+}
+
+fn unencrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str: &String) -> Result<String, ()> {
+    let cipher = Aes256Gcm::new(&(*key).unwrap());
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    match cipher.decrypt(&nonce, encrypted_str.as_ref()) {
+        Ok(plaintext) => Ok(from_utf8(&plaintext.to_owned()).unwrap().to_string()),
+        Err(_) => Err(()),
     }
 }
 
@@ -266,6 +284,13 @@ async fn key_exchange_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<
 async fn send_app_message(ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>, resp: AppMessage) {
     let resp_encrypted = encrypt_msg(key, &resp);
     ws_stream.send(Message::text(serde_json::to_string(&resp_encrypted).unwrap())).await.unwrap();
+}
+
+fn hash_str(file_new: String, file_data: String) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(file_new.as_bytes());
+    hasher.update(file_data.as_bytes());
+    hasher.finalize().to_string()
 }
 
 fn path_to_str(path: Path) -> String {
