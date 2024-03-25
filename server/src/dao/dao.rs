@@ -23,12 +23,21 @@ pub async fn add_file(client: Arc<Mutex<Client>>, file: FNode) -> Result<String,
     }
 }
 
-pub async fn remove_file(client: Arc<Mutex<Client>>, path: String) -> Result<String, String> {
-    let e = client.lock().await.execute("DELETE FROM fnode WHERE path=$1",
-    &[&path]).await;
+pub async fn remove_file(client: Arc<Mutex<Client>>, path: String, file_name: String) -> Result<String, String> {
+    let e = client.lock().await.execute("DELETE FROM fnode WHERE path=$1 AND name=$2",
+    &[&path, &file_name]).await;
     match e {
         Ok(_) => Ok(path),
-        Err(_) => Err(format!("couldn't create file!")),
+        Err(_) => Err(format!("couldn't remove file!")),
+    }
+}
+
+pub async fn update_hash(client: Arc<Mutex<Client>>, path: String, file_name: String, hash: String) -> Result<String, String>{
+    let e = client.lock().await.execute("UPDATE fnode SET hash = $1 WHERE path=$2 AND name=$2",
+    &[&path, &file_name]).await;
+    match e {
+        Ok(_) => Ok(path),
+        Err(_) => Err(format!("couldn't update hash!")),
     }
 }
 
