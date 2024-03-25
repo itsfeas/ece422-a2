@@ -56,6 +56,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
     let mut encrypted = false;
     let mut authenticated = false;
     let mut echo_accepting_data = false;
+    let mut dual_msg_flag = false;
     while let Some(m) = ws_stream.next().await {
         let m = m.expect("panicked while checking validity of message");
         if !m.is_text() && m.is_binary() {
@@ -170,12 +171,32 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     Some(value) => value,
                     None => continue,
                 };
-                let file_data = msg.data.get(1).unwrap();
-                let additional_str = msg.data.get(2).unwrap();
+                let file_data = msg.data.get(2).unwrap();
+                let additional_str = msg.data.get(3).unwrap();
                 let plaintext_str = unencrypt_string(&mut key, file_data).unwrap();
                 let new_file_str = plaintext_str.to_owned()+additional_str;
-                let encrypted_file_data = encrypt_string(&mut key, new_file_str).unwrap();
-            }
+                let encrypted_file_data = encrypt_string(&mut key, new_file_str.clone()).unwrap();
+                let new_hash = hash_file(f_node.name.clone(), new_file_str.clone());
+                let update = dao::update_hash(pg_client.clone(), path_str, f_node.name, new_hash).await;
+                let resp = match update {
+                    Ok(_) => AppMessage {
+                            cmd: Cmd::Echo,
+                            data: vec![encrypted_file_data],
+                        },
+                    Err(_) => AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["could not update hash!".to_string()],
+                        },
+                };
+                send_app_message(&mut ws_stream, &mut key, resp).await;
+            },
+            Cmd::Cat => {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+
+            },
             _ => todo!()
         }
     }
@@ -286,7 +307,7 @@ async fn send_app_message(ws_stream: &mut tokio_tungstenite::WebSocketStream<Tcp
     ws_stream.send(Message::text(serde_json::to_string(&resp_encrypted).unwrap())).await.unwrap();
 }
 
-fn hash_str(file_new: String, file_data: String) -> String {
+fn hash_file(file_new: String, file_data: String) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(file_new.as_bytes());
     hasher.update(file_data.as_bytes());
