@@ -177,7 +177,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let new_file_str = plaintext_str.to_owned()+additional_str;
                 let encrypted_file_data = encrypt_string(&mut key, new_file_str.clone()).unwrap();
                 let new_hash = hash_file(f_node.name.clone(), new_file_str.clone());
-                let update = dao::update_hash(pg_client.clone(), path_str, f_node.name, new_hash).await.expect("hash update query not working!");
+                let update = dao::update_hash(pg_client.clone(), path_str, f_node.name, new_hash).await;
                 let resp = match update {
                     Ok(_) => AppMessage {
                             cmd: Cmd::Echo,
