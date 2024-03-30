@@ -187,7 +187,7 @@ fn encrypt_msg(key: &mut Option<Key<Aes256Gcm>>, msg: &AppMessage) -> (String, N
     let cipher = Aes256Gcm::new(&(key).unwrap());
     let nonce: Nonce<typenum::U12> = Aes256Gcm::generate_nonce(&mut OsRng);
     let ciphertext = cipher.encrypt(&nonce, msq_serial.as_ref()).unwrap();
-    return (from_utf8(&ciphertext).unwrap().to_string(), nonce); 
+    return (serde_json::to_string(&ciphertext).unwrap(), nonce); 
 }
 
 fn decrypt_msg(key: &mut Option<Key<Aes256Gcm>>, nonce: Nonce<typenum::U12>, string_msg: String) -> AppMessage {
