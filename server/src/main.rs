@@ -153,7 +153,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 };
                 let new_file_name = msg.data.get(1).unwrap();
                 let new_file = FNode {
-                    id: (-1).to_string(),
+                    id: -1,
                     name: new_file_name.clone(),
                     path: path_str.clone()+&new_file_name.clone(),
                     owner: (*curr_user).clone(),

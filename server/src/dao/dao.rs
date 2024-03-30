@@ -59,7 +59,7 @@ pub fn key_gen() -> Result<String, ()> {
 }
 
 pub async fn auth_user(client: Arc<Mutex<Client>>, user_name: String, pass: String) -> Result<bool, String> {    
-    let e = client.lock().await.query_one("SELECT user_name FROM users u WHERE u.user_name=$1",
+    let e = client.lock().await.query_one("SELECT * FROM users u WHERE u.user_name=$1",
     &[&user_name]).await;
     let res = match e {
         Ok(row) => row,
@@ -125,7 +125,7 @@ pub async fn remove_user_from_group(client: Arc<Mutex<Client>>, user_name: Strin
 }
 
 pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Option<FNode>, String> {
-    let e = client.lock().await.query_opt("SELECT id, name, path, owner, hash, parent, dir, u, g, o, children FROM fnode WHERE path = $1", &[&path]).await;
+    let e = client.lock().await.query_opt("SELECT * FROM fnode WHERE path = $1", &[&path]).await;
     match e {
         Ok(Some(row)) => {
             let fnode = FNode {
@@ -149,7 +149,7 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
 }
 
 pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<Option<User>, String> {
-    let e = client.lock().await.query_opt("SELECT user_name FROM users WHERE user_name = $1", &[&user_name]).await;
+    let e = client.lock().await.query_opt("SELECT * FROM users WHERE user_name = $1", &[&user_name]).await;
     match e {
         Ok(Some(row)) => Ok(Some(User{
             id: row.get("id"),
