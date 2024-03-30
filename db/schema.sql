@@ -12,17 +12,17 @@ CREATE TABLE fnode (
     children BIGINT[]
 );
 
-CREATE TABLE users (
-    id BIGSERIAL PRIMARY KEY,
-    user_name VARCHAR,
-    group BIGINT FOREIGN KEY groups.id,
-    key VARCHAR,
-    salt VARCHAR,
-    is_admin BOOLEAN
-);
-
 CREATE TABLE groups (
     id BIGSERIAL PRIMARY KEY,
     users BIGINT[],
     name VARCHAR
+);
+
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    user_name VARCHAR,
+    group_id BIGINT REFERENCES groups(id),
+    key VARCHAR,
+    salt VARCHAR,
+    is_admin BOOLEAN
 );
