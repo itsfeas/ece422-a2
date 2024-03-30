@@ -1,4 +1,5 @@
-use std::{io::Error, str::from_utf8}; 
+use std::{io::Error, str::from_utf8, fs::File}; 
+use std::io::prelude::*;
 use tungstenite::{connect, Message, WebSocket}; 
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use url::Url; 
@@ -164,6 +165,21 @@ fn command_parser(input_str: String) -> Result<AppMessage, String> {
 }
 
 
+fn extend_directory(fname: &String) -> String {
+
+    let relative_path = vec!["..", "FILESYSTEM", fname.as_str()].join("/"); 
+    return relative_path
+}
+
+
+
+
+
+
+
+
+
+
 fn key_exchange<S>(socket: &mut WebSocket<S>) -> SharedSecret where S: std::io::Read, S: std::io::Write { 
     
     let rand_num = rand::thread_rng(); 
@@ -267,6 +283,11 @@ fn touch<S>(app_message: AppMessage,
 
     let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
     if recv_app_message.cmd == Cmd::Touch {
+
+        let enc_fname = recv_app_message.data[0].clone(); 
+        let full_rel_path = extend_directory(&enc_fname);  
+        File::create(full_rel_path); 
+
         return Ok(());
     } else if recv_app_message.cmd == Cmd::Failure {
         println!("{}", recv_app_message.data[0]);
@@ -386,7 +407,7 @@ fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Resu
     let mut filename = app_msg.data[0].clone(); 
 
     // if root path specified, replace current path string with filename
-    if filename.starts_with("/"){
+    if filename.starts_with("/") {
         let mut current_path_vec = filename.split("/").map(|x| String::from(x)).collect::<Vec<String>>(); 
         if let Some(s) = current_path_vec.pop() {
             filename = s; 
