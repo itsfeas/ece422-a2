@@ -10,7 +10,9 @@ services:
     ports:
       - 5432:5432
     environment:
-      POSTGRES_PASSWORD: ${DB_PASS}
+      - POSTGRES_USER=USER
+      - POSTGRES_PASSWORD=${DB_PASS}
+      - POSTGRES_DB=db
     volumes:
       - db-data:/db/schema.sql
     # depends_on:
