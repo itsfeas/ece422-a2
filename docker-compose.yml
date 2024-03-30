@@ -10,11 +10,12 @@ services:
     ports:
       - 5432:5432
     environment:
-      - POSTGRES_USER=USER
-      - POSTGRES_PASSWORD=${DB_PASS}
-      - POSTGRES_DB=db
+      POSTGRES_USER: USER
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: db
+      PGDATA: /db/postgres
     volumes:
-      - db-data:/db/schema.sql
+      - db-data:/db/postgres
     # depends_on:
     #   - db
   # server:
