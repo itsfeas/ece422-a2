@@ -87,11 +87,12 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         continue;
                     },
                     false => {
-                        dao::create_user(pg_client.clone(), user_name, pass, None, true).await.unwrap();
+                        dao::create_user(pg_client.clone(), user_name.clone(), pass, None, true).await.unwrap();
                         let response = AppMessage {
                             cmd: Cmd::NewUser,
-                            data: Vec::new()
+                            data: vec![user_name]
                         };
+                        authenticated = true;
                         send_app_message(&mut ws_stream, &mut key, response).await;
                         continue;
                     }
