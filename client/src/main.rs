@@ -213,7 +213,8 @@ fn send_encrypt<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Ae
 fn recv_decrypt<S>(socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) -> Result<AppMessage, String> where S: std::io::Read, S: std::io::Write {
     
     let message = socket.read().expect("Error reading message"); 
-    let (str_message_enc, nonce_array) = message.to_text().unwrap().to_string(); 
+    let (str_message_enc, nonce_array): (String, [u8; 12]) = serde_json::from_str(message.to_text().unwrap()).expect("deserialization of nonce message failed"); 
+    let nonce: aes_gcm::Nonce<U12> = nonce_array.into();
     let app_msg = decrypt_msg(&mut Some(key.clone()), nonce, str_message_enc);
     return Ok(app_msg); 
 }
@@ -228,7 +229,7 @@ fn cd<S>(app_message: AppMessage,
     let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
 
 
-    let rec_app_message = recv_decrypt(socket, encryption_key, nonce).expect("Recv decrypt failed"); 
+    let rec_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
     if rec_app_message.cmd == Cmd::Cd {
         process_local_cd_path(target_dir, current_path).expect("Path construction error")
     } else {
@@ -245,7 +246,7 @@ fn ls<S>(app_message: AppMessage,
 
     let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
 
-    let recv_app_message = recv_decrypt(socket, encryption_key, nonce).expect("Recv decrypt failed"); 
+    let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
     if recv_app_message.cmd == Cmd::Ls {
         recv_app_message.data.iter().for_each(|x| {
             println!("{}", x); 
@@ -264,7 +265,7 @@ fn touch<S>(app_message: AppMessage,
 
     let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
 
-    let recv_app_message = recv_decrypt(socket, encryption_key, nonce).expect("Recv decrypt failed"); 
+    let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
     if recv_app_message.cmd == Cmd::Touch {
         return Ok(());
     } else if recv_app_message.cmd == Cmd::Failure {
@@ -299,7 +300,7 @@ fn echo<S>(app_message: AppMessage,
     }
     let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
 
-    let recv_app_message = recv_decrypt(socket, encryption_key, nonce).expect("Recv decrypt failed"); 
+    let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
     if recv_app_message.cmd == Cmd::Touch {
         return Ok(());
     } else if recv_app_message.cmd == Cmd::Failure {
@@ -308,12 +309,23 @@ fn echo<S>(app_message: AppMessage,
     return Ok(()); 
 }
 
-fn get_encrypted_filenames<S>(filename: &String, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) where S: std::io::Read, S: std::io::Write {
-    // let msg = AppMessage {
-    //     cmd: 
-    // }
-    // send_encrypt()
-    // recv_decrypt(socket, key, nonce) 
+/*
+ * Inputs: 
+ *      filenames: Human readable filenames 
+ * Returns
+ *      vector of encrypted filenames 
+ * */
+fn get_encrypted_filenames<S>(filenames: Vec<String>, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) -> Result<Vec<String>, String> where S: std::io::Read, S: std::io::Write {
+    let msg = AppMessage {
+        cmd:Cmd::GetEncryptedFile, 
+        data: filenames
+    };
+    send_encrypt(&msg, socket, key).expect("Send get encrypted filenames failed"); 
+    let recv_msg= recv_decrypt(socket, key).expect("Recv get encrypted filenames failed"); 
+    if recv_msg.cmd == Cmd::GetEncryptedFile {
+        return Ok(recv_msg.data); 
+    } 
+    return Err(String::from("Server did not send GetEncryptedFile.")); 
 }
 
 
