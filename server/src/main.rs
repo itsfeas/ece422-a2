@@ -317,6 +317,7 @@ fn handle_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg_serial
     match encrypted {
         true => {
             let plaintext_str = unencrypt_string(key, &msg_serialized).unwrap();
+            println!("DECRYPTED_MSG: {}", plaintext_str.clone());
             serde_json::from_str(&plaintext_str).unwrap()
         },
         false => serde_json::from_str(&msg_serialized).unwrap(),
