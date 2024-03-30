@@ -1,16 +1,16 @@
-use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, io::Error, rc::Rc, sync::{Arc, Mutex}};
+use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, env, fmt, hash::{self, Hasher}, io::Error, ops::ControlFlow, rc::Rc, sync::Arc, vec};
+use aes_gcm_siv::Aes256GcmSiv;
 use futures::SinkExt;
 use futures_util::{future, StreamExt, TryStreamExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::{net::{TcpListener, TcpStream}, sync::Mutex};
 use log::info;
-use postgres::{Client, NoTls};
-use model::model::{AppMessage, Cmd};
-use tokio_tungstenite::tungstenite::{http::response, Message};
+use tokio_postgres::{Client, Config, NoTls};
+use model::model::{AppMessage, Cmd, Path, FNode};
+use tokio_tungstenite::{tungstenite::{http::response, Message}, WebSocketStream};
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use rand_core::OsRng;
 use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit},
-    Aes256Gcm, Nonce, Key
+    aead::{consts::U12, Aead, AeadCore, KeyInit}, Aes256Gcm, Key, Nonce
 };
 use std::str::from_utf8;
 
@@ -21,9 +21,16 @@ mod dao;
 // - https://docs.rs/aes-gcm/latest/aes_gcm/
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let pg_client = Arc::new(Mutex::new(
-        Client::connect("host=localhost user=postgres", NoTls)
-            .expect("Could not form connection with DB!")));
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let (client, connection) =
+        tokio_postgres::connect(&format!("host=localhost dbname=db user=USER password={}", db_pass), NoTls).await
+        .unwrap();
+    let pg_client = Arc::new(Mutex::new(client));
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("connection error: {}", e);
+        }
+    });
     // println!("Hello, world!");
     let addr = "127.0.0.1:8080";
     // let sock = TcpListener
@@ -36,7 +43,7 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Client>>) {
+async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
     let addr = stream.peer_addr().expect("could not find peer address!");
     println!("peer: {}", addr);
     
@@ -45,11 +52,14 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Cli
 
     let mut shared_secret: Arc<Option<Arc<SharedSecret>>> = Arc::new(None);
     let mut key: Arc<Option<Key<Aes256Gcm>>> = Arc::new(None);
+    let mut curr_user : Arc<String> = Arc::new(String::new());
 
     let mut encrypted = false;
     let mut authenticated = false;
+    let mut echo_accepting_data = false;
+    let mut dual_msg_flag = false;
     while let Some(m) = ws_stream.next().await {
-        let m = m.expect("panicked while checking validity of message");
+        let m = m.unwrap();
         if !m.is_text() && m.is_binary() {
             continue;
         }
@@ -65,19 +75,19 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Cli
             Cmd::NewUser => {
                 let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
                 let pass = msg.data.get(1).expect("password not supplied!").to_owned();
-                let does_user_exist = dao::get_user(&mut ((*pg_client).lock().unwrap()), user_name.clone())
+                let does_user_exist = dao::get_user(pg_client.clone(), user_name.clone()).await
                     .expect("could not perform get_user query!");
-                match does_user_exist.is_none() {
+                match does_user_exist.is_some() {
                     true => {
                         let response = AppMessage {
                             cmd: Cmd::Failure,
-                            data: Vec::new()
+                            data: vec!["user already exists! you can't make an account!".to_string()]
                         };
                         send_app_message(&mut ws_stream, &mut key, response).await;
                         continue;
                     },
                     false => {
-                        dao::create_user(&mut ((*pg_client).lock().unwrap()), user_name, pass, None, false).expect("could not create user!");
+                        dao::create_user(pg_client.clone(), user_name, pass, None, true).await.unwrap();
                         let response = AppMessage {
                             cmd: Cmd::NewUser,
                             data: Vec::new()
@@ -90,22 +100,215 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<postgres::Cli
             Cmd::Login => {
                 let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
                 let pass = msg.data.get(1).expect("password not supplied!").to_owned();
-                let res = dao::auth_user(&mut ((*pg_client).lock().unwrap()), user_name, pass)
+                let res_auth = dao::auth_user(pg_client.clone(), user_name.clone(), pass).await
                     .expect("could not perform auth_user query!");
-                authenticated = res;
+                let res_user = dao::get_user(pg_client.clone(), user_name.clone()).await;
+                let msg = match (res_auth, res_user) {
+                    (true, Ok(u)) => {
+                        AppMessage {
+                            cmd: Cmd::Login,
+                            data: vec![user_name.clone(), u.unwrap().is_admin.to_string()],
+                        }
+                    },
+                    ((true, Err(_)) | (false, _)) => {
+                        AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["failed to login!".to_string()],
+                        }
+                    },
+                };
+                send_app_message(&mut ws_stream, &mut key, msg).await;
+                authenticated = res_auth;
+            },
+            Cmd::Cd => {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let target_path = msg.data.get(1).unwrap();
+                if f_node.children.contains(target_path) {
+                    let msg = AppMessage {
+                        cmd: Cmd::Cd,
+                        data: vec![target_path.clone()],
+                    };
+                    send_app_message(&mut ws_stream, &mut key, msg).await;
+                    continue;
+                }
+            },
+            Cmd::Ls => {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let msg = AppMessage {
+                    cmd: Cmd::Ls,
+                    data: f_node.children,
+                };
+                send_app_message(&mut ws_stream, &mut key, msg).await;
+            },
+            Cmd::Touch => {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let new_file_name = msg.data.get(1).unwrap();
+                let new_file = FNode {
+                    id: -1,
+                    name: new_file_name.clone(),
+                    path: path_str.clone()+&new_file_name.clone(),
+                    owner: (*curr_user).clone(),
+                    hash: "".to_string(),
+                    parent: path_str.clone()[..path_str.len()-2].to_string(),
+                    dir: false,
+                    u: 7,
+                    g: 0,
+                    o: 0,
+                    children: vec![],
+                };
+                let resp = match dao::add_file(pg_client.clone(), new_file).await {
+                    Ok(file_name) => {
+                        let encrypted_file = encrypt_string_nononce(&mut key, file_name).expect("could not encrypt file name!");
+                        AppMessage {
+                            cmd: Cmd::Touch,
+                            data: vec![encrypted_file],
+                        }
+                    },
+                    Err(_) => {
+                        AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["FNode could not be created!".to_string()],
+                        }
+                    },
+                };
+                send_app_message(&mut ws_stream, &mut key, resp).await;
+            },
+            Cmd::GetEncryptedFile => {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let unencrypted_filename = msg.data.get(0).unwrap();
+                let f_node = dao::get_f_node(pg_client.clone(), path_str+unencrypted_filename).await.unwrap();
+                let user = dao::get_user(pg_client.clone(), (*curr_user).clone()).await.unwrap();
+                let msg = match (f_node, user) {
+                    (Some(f), Some(u)) => {
+                        let u8_32_arr: [u8; 32] = serde_json::from_str(&u.key).unwrap();
+                        let user_key: Key<Aes256Gcm> = u8_32_arr.into();
+                        // let k: aes_gcm::Key<Aes256Gcm> = u.key.as_bytes();
+                        // let u8_arr: aes_gcm::Key<Aes256Gcm> = u.key.as_bytes().to_vec().into();
+                        let filename_enc = encrypt_string_nononce(&mut Arc::new(Some(user_key)), f.name);
+                        AppMessage {
+                            cmd: Cmd::GetEncryptedFile,
+                            data: vec![filename_enc.unwrap()],
+                        }
+                    },
+                    (_, _) => AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["could not get encrypted filename!".to_string()],
+                        },
+                };
+                send_app_message(&mut ws_stream, &mut key, msg).await;
+            },
+            Cmd::Echo => {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let file_data = msg.data.get(2).unwrap();
+                let additional_str = msg.data.get(3).unwrap();
+                let plaintext_str = unencrypt_string_nononce(&mut key, file_data).unwrap();
+                let new_file_str = plaintext_str.to_owned()+additional_str;
+                let encrypted_file_data = encrypt_string_nononce(&mut key, new_file_str.clone()).unwrap();
+                let new_hash = hash_file(f_node.name.clone(), new_file_str.clone());
+                let update = dao::update_hash(pg_client.clone(), path_str, f_node.name, new_hash).await;
+                let resp = match update {
+                    Ok(_) => AppMessage {
+                            cmd: Cmd::Echo,
+                            data: vec![encrypted_file_data],
+                        },
+                    Err(_) => AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["could not update hash!".to_string()],
+                        },
+                };
+                send_app_message(&mut ws_stream, &mut key, resp).await;
+            },
+            Cmd::Cat => {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let file_data = msg.data.get(2).unwrap();
+                let plaintext_str = unencrypt_string_nononce(&mut key, file_data).unwrap();
+                send_app_message(&mut ws_stream, &mut key, AppMessage {
+                    cmd: Cmd::Cat,
+                    data: vec![plaintext_str],
+                }).await;
             },
             _ => todo!()
         }
     }
 }
 
-fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> Result<String, ()> {
+async fn get_and_check_path(msg: &AppMessage, pg_client: &Arc<Mutex<Client>>, ws_stream: &mut WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>) -> Option<(Path, String, FNode)> {
+    let path: Path = serde_json::from_str(msg.data.get(0).unwrap()).unwrap();
+    let path_str = path_to_str(path.clone());
+    let res = dao::get_f_node(pg_client.clone(), path_str.clone()+msg.data.get(1).unwrap()).await
+        .expect("could not perform get_f_node query!");
+    let f_node = match check_curr_path(res, ws_stream, key).await {
+        Some(value) => value,
+        None => return None,
+    };
+    Some((path, path_str, f_node))
+}
+
+async fn check_curr_path(res: Option<FNode>, ws_stream: &mut WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>) -> Option<FNode> {
+    let f_node = match res {
+        Some(f_node) => {
+            f_node
+        },
+        None => {
+            let msg = AppMessage {
+                cmd: Cmd::Failure,
+                data: vec!["Current path does not exist!".to_string()],
+            };
+            send_app_message(ws_stream, key, msg).await;
+            return None;
+        },
+    };
+    if f_node.dir {
+        let msg = AppMessage {
+            cmd: Cmd::Failure,
+            data: vec!["Current path is not a directory!".to_string()],
+        };
+        send_app_message(ws_stream, key, msg).await;
+        return None;
+    }
+    Some(f_node)
+}
+
+
+fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> Result<(String, [u8;12]), ()> {
     let msg_serialized = serde_json::to_string(msg).unwrap();
+    encrypt_string(key, msg_serialized)
+}
+
+fn encrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> Result<(String, [u8;12]), ()> {
     let cipher = Aes256Gcm::new(&(*key).unwrap());
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    let encrypt = cipher.encrypt(&nonce, msg_serialized.as_ref());
+    let encrypt = cipher.encrypt(&nonce, s.as_ref());
     match encrypt {
-        Ok(e) => Ok(from_utf8(&e).unwrap().to_string()),
+        Ok(e) => Ok((serde_json::to_string(&e).unwrap(), nonce.into())),
+        Err(_) => Err(()),
+    }
+}
+
+fn encrypt_string_nononce(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> Result<String, ()> {
+    let cipher = Aes256Gcm::new(&(*key).unwrap());
+    let nonce: Nonce<U12> = [0,0,0,0,0,0,0,0,0,0,0,0].into();
+    let encrypt = cipher.encrypt(&nonce, s.as_ref());
+    match encrypt {
+        Ok(e) => Ok((from_utf8(&e).unwrap().to_string())),
         Err(_) => Err(()),
     }
 }
@@ -113,13 +316,32 @@ fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> Resul
 fn handle_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg_serialized: String) -> AppMessage {
     match encrypted {
         true => {
-            let cipher = Aes256Gcm::new(&(*key).unwrap());
-            let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-            let plaintext = cipher.decrypt(&nonce, msg_serialized.as_ref()).unwrap();
-            let plaintext_str = from_utf8(&plaintext).unwrap();
+            let plaintext_str = unencrypt_string(key, &msg_serialized).unwrap();
+            println!("DECRYPTED_MSG: {}", plaintext_str.clone());
             serde_json::from_str(&plaintext_str).unwrap()
         },
         false => serde_json::from_str(&msg_serialized).unwrap(),
+    }
+}
+
+fn unencrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str: &String) -> Result<String, ()> {
+    let cipher = Aes256Gcm::new(&(*key).unwrap());
+    let msg_tup: (String, [u8;12]) = serde_json::from_str(&encrypted_str).unwrap();
+    let encrypted_u8: Vec<u8> = serde_json::from_str(&msg_tup.0).unwrap();
+    let nonce: aes_gcm::Nonce<U12> = msg_tup.1.into();
+    match cipher.decrypt(&nonce, encrypted_u8.as_ref()) {
+        Ok(plaintext) => Ok(from_utf8(&plaintext.to_owned()).unwrap().to_string()),
+        Err(_) => Err(()),
+    }
+}
+
+fn unencrypt_string_nononce(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str: &String) -> Result<String, ()> {
+    let cipher = Aes256Gcm::new(&(*key).unwrap());
+    let msg_tup: String = serde_json::from_str(&encrypted_str).unwrap();
+    let nonce: Nonce<U12> = [0,0,0,0,0,0,0,0,0,0,0,0].into();
+    match cipher.decrypt(&nonce, encrypted_str.as_ref()) {
+        Ok(plaintext) => Ok(from_utf8(&plaintext.to_owned()).unwrap().to_string()),
+        Err(_) => Err(()),
     }
 }
 
@@ -152,6 +374,21 @@ async fn key_exchange_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<
 // }
 
 async fn send_app_message(ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>, resp: AppMessage) {
-    let resp_encrypted = encrypt_msg(key, &resp);
+    let resp_encrypted = encrypt_msg(key, &resp).unwrap();
     ws_stream.send(Message::text(serde_json::to_string(&resp_encrypted).unwrap())).await.unwrap();
+}
+
+fn hash_file(file_new: String, file_data: String) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(file_new.as_bytes());
+    hasher.update(file_data.as_bytes());
+    hasher.finalize().to_string()
+}
+
+fn path_to_str(path: Path) -> String {
+    let mut path_str: String = path.path[0].1.clone();
+    path.path[1..].into_iter()
+        .map(|t| t.1.clone()+"/")
+        .for_each(|s| path_str+= &s);
+    path_str
 }

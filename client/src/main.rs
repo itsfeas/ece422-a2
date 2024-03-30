@@ -1,17 +1,25 @@
-use std::io::Error; 
+use std::io; 
+use std::{io::Error, str::from_utf8, fs::File, fs::create_dir,  io::stdout, ops::Neg, io::Read, io::Write}; 
+use log::Log;
 use tungstenite::{connect, Message, WebSocket}; 
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use url::Url; 
 use serde::{Serialize, Deserialize};
 use futures::Stream;
-use model::{cmd::MapStr, model::{AppMessage, Cmd}};
-// use serde::{serialize, deserialize}; 
+use model::{cmd::{self, MapStr}, model::{AppMessage, Cmd, Path}};
+use rand_core::OsRng;
+// use serde::{serialize, deserialize};
+use aes_gcm::{
+    aead::{Aead, AeadCore, KeyInit},
+    Aes256Gcm, Nonce, Key
+};
+use typenum::U12; 
 
-
+#[derive(Debug, Clone)]
 enum LoginStatus {
-    New(String),
-    Attempt(String), 
-    Failed(String)
+    New(),
+    Success((String, bool)), 
+    Failure()
 }
 
 
@@ -22,63 +30,210 @@ enum LoginStatus {
 ///                           ///
 /////////////////////////////////
 
+fn get_input(std_io: &io::Stdin, buffer: &mut String) {
+    std_io.read_line(buffer).expect("failed to readline");
+    buffer.pop();
+}
+
 fn main() -> Result<(), Error> {
-    let server_addr = "127.0.0.1:8080";
     
+    let server_addr = "127.0.0.1:8080";
+        
     let url = Url::parse("ws://127.0.0.1:8080").expect("Failed to unwrap addr"); 
     let (mut socket, response) = connect(url).expect("Failed to connect");
     println!("WebSocket handshake has been successfully completed");
-
+    
+    // Key transfer at the beginning of the session
+    let diffie_key = key_exchange(&mut socket); 
+    // convert to Aes256Gcm key 
+    let aes_key: Key<Aes256Gcm> = diffie_key.to_bytes().into();
     loop {
 
+        let mut line = String::new();
+        let std_io = io::stdin();
+        println!("Welcome");
+        println!("Login as follows: login <username> <password>");
+        println!("Or sign up as a new user: new_user <username> <password>");
         // obtain input from command line 
-        let cmd_input = String::from("new"); 
+        get_input(&std_io, &mut line);
+        let cmd_input = String::from(line); // placeholder -- user can type username or "new"
+        println!("DEBUG: {:?}", cmd_input);
+
+        let app_message = command_parser(cmd_input.clone()).unwrap();  
+        println!("DEBUG: {:?}", app_message);
+
+        let mut login_state;
+        match app_message.cmd {
+            Cmd::Login | Cmd::NewUser => {
+                login_state = login_signup(&app_message, &mut socket, &mut aes_key.clone());  
+            },
+            _ => {
+                println!("Please use one of the commands as specified.");
+                continue;
+            }
+        }
         
-        try_login(cmd_input, &mut socket); 
+        
+        if let LoginStatus::New() = login_state.clone() {
+            println!("signup successful");
+            continue;
+        };
+        if let LoginStatus::Failure() = login_state.clone() {
+            println!("failure");
+            continue;
+        };
+        if let LoginStatus::Success(s) = login_state.clone() {
+            
+            println!("login successful");
+            let mut path = Path {
+                path: vec![(false, "/".into()), (false, "home".into()), (false, s.0.clone())]
+            };
+
+
+            // integrity check with server 
+            
+
+            loop {
+                println!("Enter Command");
+                let mut line = String::new();
+                let std_io = io::stdin();
+                get_input(&std_io, &mut line);
+                // obtain input from command line 
+                let cmd_input = String::from(line); 
+
+                let app_message = command_parser(cmd_input).unwrap();  
+                println!("DEBUG: {:?}", app_message); 
+
+
+
+
+                if app_message.cmd == Cmd::NewConnection {
+                    // setup_connection
+                } else if app_message.cmd == Cmd::Echo { 
+                    // AppMessage: echo <current path> <echo message> [">" <path to file to echo to>] 
+
+                } else if app_message.cmd == Cmd::Cd { 
+                    // AppMessage: cd <current path> <path to cd to>, since the server searches
+                    // from root 
+                } else if app_message.cmd == Cmd::Touch {
+                    // AppMessage: touch <current path> <new file>, since the server searches
+                    // from root 
+                }
+
+
+
+            }
+
+        }
+        else {
+
+        }
+
 
 
     }
-
-    Ok(())
+    // Ok(())
 }
 
+// fn setup_connection<S>(socket: &mut WebSocket<S>) where S: std::io::Read, S: std::io::Write {
+//     let shared_secret = key_exchange(socket); 
+//     println!("DEBUG: {:?}", Vec::from(shared_secret.as_ref()));  
+// }
 
-fn try_login<S>(input_str: String, socket: &mut WebSocket<S>) -> LoginStatus where S: std::io::Read, S: std::io::Write  {
-    let app_message = command_parser(input_str).unwrap();  
-    println!("DEBUG: {:?}", app_message); 
+/*
+ * input_str: either the username, or "new" */
+fn login_signup<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) -> LoginStatus where S: std::io::Read, S: std::io::Write  {
+
     
-    if app_message.cmd == Cmd::NewConnection {
-        println!("DEBUG: reached"); 
-        let shared_secret = key_exchange(socket); 
-        println!("DEBUG: {:?}", Vec::from(shared_secret.as_ref()));  
-        // user types username 
-        let username = String::from("itsnotfeas"); 
+    send_encrypt(msg, socket, key);
+    println!("Message sent"); 
+    // let response = socket.read().expect("Error reading message");
+    let login_res = recv_decrypt(socket, key).unwrap();
+    // println!("Received: {}", response);
+    // println!("DEBUG: reached"); 
+    // let login_res: AppMessage = serde_json::from_str(response.to_text().unwrap()).expect("Deserialize failed for login/signup response!");
+    // let server_public: Cmd = serde_json::from_str(&login_res.cmd).expect("Deserialize failed for server_public!");
+    match login_res.cmd {
+        Cmd::NewUser => {
+            return LoginStatus::Success((String:: from("signup successful"), false));
+        },
+        Cmd::Login => {
+            let is_admin: bool = match login_res.data[1].as_str() {
+                "true" => true,
+                "false" => false,
+                _ => false
+            };
+            return LoginStatus::Success((login_res.data[0].clone(),is_admin));
+        },
+        Cmd::Failure => {
+            return LoginStatus::Failure();
+        },
+        _ => {todo!()}
 
-        // encrypt 
-        
-        // send to socket (username, encrypted username)
-
-        return LoginStatus::New(username); 
     }
+    // user types username 
+    // let username = String::from("itsnotfeas"); 
 
-    LoginStatus::Failed("".to_string())
+    // encrypt
+    
+    
+    // send to socket (username, encrypted username)
+
+    // return LoginStatus::New(username); 
+
+    // LoginStatus::Failed("".to_string())
     // else
+}
+
+fn encrypt_msg(key: &mut Option<Key<Aes256Gcm>>, msg: &AppMessage) -> (String, Nonce<typenum::U12>) {
+    let msq_serial = serde_json::to_string(msg).unwrap();
+    let cipher = Aes256Gcm::new(&(key).unwrap());
+    let nonce: Nonce<typenum::U12> = Aes256Gcm::generate_nonce(&mut OsRng);
+    let ciphertext = cipher.encrypt(&nonce, msq_serial.as_ref()).unwrap();
+    return (serde_json::to_string(&ciphertext).unwrap().to_string(), nonce); 
+}
+
+fn decrypt_msg(key: &mut Option<Key<Aes256Gcm>>, nonce: Nonce<typenum::U12>, string_msg: String) -> AppMessage {
+    let cipher = Aes256Gcm::new(&(key).unwrap());
+    let from_str: Vec<u8> = serde_json::from_str(&string_msg).unwrap();
+    let ciphertext = cipher.decrypt(&nonce, from_str.as_ref()).unwrap();
+    println!("msg_recv {}", String::from_utf8(ciphertext.clone()).unwrap().as_str());
+    let rec_app_message:AppMessage = serde_json::from_str(
+            String::from_utf8(ciphertext).unwrap().as_str()
+        ).expect("Invalid deserializeation"); 
+    return rec_app_message; 
 }
 
 fn command_parser(input_str: String) -> Result<AppMessage, String> {
     let mut result = input_str.split_whitespace().map(|simple_str| String::from(simple_str)).collect::<Vec<String>>();  
-
-    let message = match result.pop() {
+    let args = result.split_off(1);
+    let message = match result.get(0) {
         Some(cmd_val) => {
             AppMessage {
-                cmd: Cmd::from_str(cmd_val).expect("command could not be mapped!"), 
-                data: result 
+                cmd: Cmd::from_str(cmd_val.clone()).expect("command could not be mapped!"), 
+                data: args
             }
         }, 
         None => return Err("Failure".to_string()), 
     }; 
     return Ok(message); 
 }
+
+/*  DEPRECATED
+ * */
+fn extend_directory(fname: &String) -> String {
+
+    let relative_path = vec!["..", "FILESYSTEM", fname.as_str()].join("/"); 
+    return relative_path
+}
+
+
+
+
+
+
+
+
 
 
 fn key_exchange<S>(socket: &mut WebSocket<S>) -> SharedSecret where S: std::io::Read, S: std::io::Write { 
@@ -115,4 +270,301 @@ fn key_exchange<S>(socket: &mut WebSocket<S>) -> SharedSecret where S: std::io::
 
     // deffie-hellmamn
 
+}
+
+fn send_encrypt<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write{
+   
+    let (encrypted_msg, nonce) = encrypt_msg(&mut Some(key.clone()), msg);
+
+    socket.send(Message::Text(
+                serde_json::to_string::<(std::string::String, [u8; 12])>(&(encrypted_msg, nonce.into())).expect("serialization failed")
+            )).expect("Send failed"); 
+    Ok(())
+}
+
+fn recv_decrypt<S>(socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) -> Result<AppMessage, String> where S: std::io::Read, S: std::io::Write {
+    
+    let message = socket.read().expect("Error reading message"); 
+    let (str_message_enc, nonce_array): (String, [u8; 12]) = serde_json::from_str(message.to_text().unwrap()).expect("deserialization of nonce message failed"); 
+    let nonce: aes_gcm::Nonce<U12> = nonce_array.into();
+    let app_msg = decrypt_msg(&mut Some(key.clone()), nonce, str_message_enc);
+    return Ok(app_msg); 
+}
+
+
+fn cd<S>(app_message: AppMessage, 
+         socket: &mut WebSocket<S>, 
+         encryption_key: &mut Key<Aes256Gcm>, 
+         current_path: &mut Path) -> Result<(), String>  where S: std::io::Read, S: std::io::Write { 
+
+    let target_dir: String = app_message.data[1].clone(); 
+    let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
+
+
+    let rec_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
+    if rec_app_message.cmd == Cmd::Cd {
+        let enc_filename = get_encrypted_filenames(vec![target_dir.clone()], socket, encryption_key).unwrap()[0].clone(); 
+        let enc_path = convert_path_to_enc(current_path, socket, encryption_key); 
+        if enc_path.path.len() == 0 { // cd to root and home level
+            
+        } else {
+            // for cd, do nothing 
+        }
+        
+        process_local_cd_path(target_dir, current_path).expect("Path construction error")
+    } else {
+        println!("Directory does not exist"); 
+    }
+    return Ok(()); 
+
+}
+
+fn mkdir<S>(msg: AppMessage, 
+         socket: &mut WebSocket<S>, 
+         encryption_key: &mut Key<Aes256Gcm>, 
+         current_path: &Path) -> Result<(), String>  where S: std::io::Read, S: std::io::Write {
+    let target_path = msg.data[1].clone();  
+    send_encrypt(&msg, socket, encryption_key).unwrap(); 
+    let recv_msg = recv_decrypt(socket, encryption_key).unwrap(); 
+    if recv_msg.cmd == Cmd::Mkdir {
+        let enc_filename = get_encrypted_filenames(vec![target_path.clone()], socket, encryption_key).unwrap()[0].clone(); 
+        let enc_path = convert_path_to_enc(current_path, socket, encryption_key); 
+        if enc_path.path.len() == 0 { // cd to root and home level
+            println!("{}", "Cannot mkdir on this level.") 
+        } else {
+            // for cd, do nothing
+            //
+            create_dir(enc_path.path.iter().map(|x| {
+                    if !x.0 {
+                        panic!("Path must be encrypted"); 
+                    }
+                    x.1.clone()
+                }).collect::<Vec<String>>().join("/")).unwrap(); 
+            
+        }
+    }
+
+    Ok(())
+} 
+
+
+
+fn ls<S>(app_message: AppMessage, 
+        socket: &mut WebSocket<S>, 
+        encryption_key: &mut Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write {
+
+    let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
+
+    let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
+    if recv_app_message.cmd == Cmd::Ls {
+        recv_app_message.data.iter().for_each(|x| {
+            println!("{}", x); 
+        }); 
+        return Ok(());
+    }  
+    return Err(String::from("Something unexpected happened when trying to Ls")); 
+
+}
+
+
+
+fn touch<S>(app_message: AppMessage, 
+        socket: &mut WebSocket<S>, 
+        encryption_key: &mut Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write {
+
+    let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
+
+    let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
+    if recv_app_message.cmd == Cmd::Touch {
+
+        let enc_fname = recv_app_message.data[0].clone(); 
+        let full_rel_path = extend_directory(&enc_fname);  
+        File::create(full_rel_path); 
+
+        return Ok(());
+    } else if recv_app_message.cmd == Cmd::Failure {
+        println!("{}", recv_app_message.data[0]);
+    } 
+    return Ok(()); 
+}
+
+
+fn cat<S>(msg: AppMessage,
+       socket: &mut WebSocket<S>, 
+       encryption_key: &mut Key<Aes256Gcm> ) -> Result<(), String> where S:std::io::Read, S:std::io::Write { 
+    send_encrypt(&msg, socket, encryption_key).unwrap(); 
+    
+    loop {
+        let recv_app_message: AppMessage = recv_decrypt(socket, encryption_key).unwrap(); 
+        if recv_app_message.cmd == Cmd::Cat { 
+            print!("{}", recv_app_message.data.join("")); 
+            stdout().flush().unwrap();             
+        }
+    }
+    Ok(())
+}
+
+
+
+fn pwd(app_message: AppMessage, 
+       current_path: &Path) -> Result<(), Error> {
+    let mut str_path = current_path.path.iter().map(|x| {
+        if x.clone().0 {
+            panic!("encrypted message received")
+        }
+        x.1.clone()
+    }).collect::<Vec<String>>().join("/"); 
+    
+    str_path.insert_str(0, "/"); 
+    println!("{}", str_path); 
+    Ok(())
+
+}
+
+
+fn echo<S>(app_message: AppMessage, 
+        socket: &mut WebSocket<S>, 
+        encryption_key: &mut Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write {
+    if app_message.data.len() == 2 {
+        println!("{}", &app_message.data[1]);
+        return Ok(()); 
+    }
+    let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
+
+    let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
+    if recv_app_message.cmd == Cmd::Touch {
+        return Ok(());
+    } else if recv_app_message.cmd == Cmd::Failure {
+        println!("{}", recv_app_message.data[0]);
+    } 
+    return Ok(()); 
+}
+
+/*
+ * Inputs: 
+ *      filenames: Human readable filenames 
+ * Returns
+ *      vector of encrypted filenames 
+ * */
+fn get_encrypted_filenames<S>(filenames: Vec<String>, 
+                              socket: &mut WebSocket<S>, 
+                              key: &mut Key<Aes256Gcm>) -> Result<Vec<String>, String> where S: std::io::Read, S: std::io::Write {
+    let msg = AppMessage {
+        cmd:Cmd::GetEncryptedFile, 
+        data: filenames
+    };
+    send_encrypt(&msg, socket, key).expect("Send get encrypted filenames failed"); 
+    let recv_msg= recv_decrypt(socket, key).expect("Recv get encrypted filenames failed"); 
+    if recv_msg.cmd == Cmd::GetEncryptedFile {
+        return Ok(recv_msg.data); 
+    } 
+    return Err(String::from("Server did not send GetEncryptedFile.")); 
+}
+
+
+
+
+
+
+
+
+///////////////////////////////////////
+///     PRE AND POST PROCESSING     ///
+///////////////////////////////////////
+
+
+
+/*
+ *  cmd_arg: argument of the cd command. For example: if command is cd /home/user/f1, 
+ *      then cmd_arg = "/home/user/f1"
+ *
+ *  Usage:
+ *      after Cd command confirmed to be successful, update the path 
+ * */
+fn process_local_cd_path(cmd_arg: String, current_path: &mut Path) -> Result<(), String> {
+    
+    // if we do cd /xxxx, we are specifying an absolute path, therefore clear the path vector
+    if cmd_arg.clone().as_str().starts_with("/") {
+        current_path.path = vec![(false, String::from("/"))]; 
+    } 
+    cmd_arg.split("/").for_each(|x| {
+        // if an element is "..", go back until there is only ["/"] in the vector
+        if x == ".." && current_path.path.len() > 1  {
+            current_path.path.pop(); 
+        } else if x == "." {
+            // do nothing 
+
+        // otherwise, we append it to the end
+        } else if !x.is_empty() {
+            current_path.path.push((false, String::from(x)))
+        }
+    }); 
+
+    Ok(())
+}
+
+
+/*
+ *  preprocesses app message to insert current path. 
+ *  Current path (in app message, as opposed to the argument current_path) 
+ *  will be replaced with the filename argument if filename is an absolute path
+ * */
+
+fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Result<(), String> {
+    
+    // assumes that current path has not been updated
+    let mut current_path_str: String;  
+    let mut filename = app_msg.data[0].clone(); 
+
+    // if root path specified, replace current path string with filename
+    if filename.starts_with("/") {
+        let mut current_path_vec = filename.split("/").map(|x| String::from(x)).collect::<Vec<String>>(); 
+        if let Some(s) = current_path_vec.pop() {
+            filename = s; 
+            current_path_str = current_path_vec.join("/"); 
+            current_path_str.insert_str(0, "/"); 
+        } else {
+            filename = String::from("/"); 
+            current_path_str = String::from("/"); 
+        }
+    // else, use current directory
+    } else  {
+        current_path_str = current_path.path.iter().map(|x| x.1.clone()).collect::<Vec<String>>().join("/"); 
+    }
+    
+    app_msg.data[0] = filename; 
+    app_msg.data.insert(0, current_path_str); 
+    
+    Ok(())
+
+}
+
+/*
+ *  
+ * */
+fn convert_path_to_enc<S>(path: &Path, 
+                          socket: &mut WebSocket<S>, 
+                          key: &mut Key<Aes256Gcm>) -> Path where S: std::io::Read, S: std::io::Write { 
+    let mut path_local_strings: Vec<String> = path.path.iter().map(|x| {
+        if x.0 {
+            panic!("Path is unencrypted!")
+        }
+        x.1.clone()
+    }).collect::<Vec<String>>(); 
+
+
+    if path_local_strings.len() > 2 {
+        path_local_strings.remove(0); 
+        path_local_strings.remove(0); 
+    } else { 
+        return Path {
+            path: vec![]
+        };  
+    }
+
+    let mut enc_path_segments: Vec<String> = get_encrypted_filenames(path_local_strings, socket, key).unwrap();     
+    enc_path_segments.insert(0, "../FILESYSTEM".into()); 
+    return Path {
+        path: enc_path_segments.iter().map(|x| (true, x.into())).collect()
+    }
 }

@@ -11,6 +11,7 @@ impl MapStr for Cmd {
             "cd" => Ok(Cmd::Cd),
             "echo" => Ok(Cmd::Echo),
             "login" => Ok(Cmd::Login),
+            "get_encrypted_filename" => Ok(Cmd::GetEncryptedFile),
             "ls" => Ok(Cmd::Ls),
             "mkdir" => Ok(Cmd::Mkdir),
             "mv" => Ok(Cmd::Mv),
