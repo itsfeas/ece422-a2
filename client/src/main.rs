@@ -46,9 +46,8 @@ fn main() -> Result<(), Error> {
     // Key transfer at the beginning of the session
     let diffie_key = key_exchange(&mut socket); 
     // convert to Aes256Gcm key 
-    let aes_key: Key<Aes256Gcm> = diffie_key.to_bytes().into();
+    let mut aes_key: Key<Aes256Gcm> = diffie_key.to_bytes().into();
     loop {
-
         let mut line = String::new();
         let std_io = io::stdin();
         println!("Welcome");
@@ -56,10 +55,10 @@ fn main() -> Result<(), Error> {
         println!("Or sign up as a new user: new_user <username> <password>");
         // obtain input from command line 
         get_input(&std_io, &mut line);
-        let cmd_input = String::from(line); // placeholder -- user can type username or "new"
+        let cmd_input = String::from(line.clone()); // placeholder -- user can type username or "new"
         println!("DEBUG: {:?}", cmd_input);
 
-        let app_message = command_parser(cmd_input.clone()).unwrap();  
+        let mut app_message = command_parser(cmd_input.clone()).unwrap();  
         println!("DEBUG: {:?}", app_message);
 
         let mut login_state;
@@ -94,14 +93,20 @@ fn main() -> Result<(), Error> {
             
 
             loop {
-                println!("Enter Command");
+                print!("{}>>",path);
+                stdout().flush();
+                // println!("Enter Command");
                 let mut line = String::new();
-                let std_io = io::stdin();
+                // let std_io = io::stdin();
                 get_input(&std_io, &mut line);
+                if (line.is_empty()) {
+                    continue;
+                }
                 // obtain input from command line 
                 let cmd_input = String::from(line); 
 
-                let app_message = command_parser(cmd_input).unwrap();  
+                app_message = command_parser(cmd_input).unwrap(); 
+                
                 println!("DEBUG: {:?}", app_message); 
 
 
@@ -113,11 +118,16 @@ fn main() -> Result<(), Error> {
                     // AppMessage: echo <current path> <echo message> [">" <path to file to echo to>] 
 
                 } else if app_message.cmd == Cmd::Cd { 
+                    preprocess_app_message(&mut app_message, &path);
+                    cd(app_message, &mut socket, &mut aes_key, &mut path);
                     // AppMessage: cd <current path> <path to cd to>, since the server searches
                     // from root 
                 } else if app_message.cmd == Cmd::Touch {
                     // AppMessage: touch <current path> <new file>, since the server searches
                     // from root 
+                } else if app_message.cmd == Cmd::Mkdir {
+                    preprocess_app_message(&mut app_message, &path);
+                    mkdir(app_message, &mut socket, &mut aes_key,  &path);
                 }
 
 
@@ -311,7 +321,7 @@ fn cd<S>(app_message: AppMessage,
             // for cd, do nothing 
         }
         
-        process_local_cd_path(target_dir, current_path).expect("Path construction error")
+        process_local_cd_path(target_dir, current_path).expect("Path construction error");
     } else {
         println!("Directory does not exist"); 
     }
