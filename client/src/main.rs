@@ -133,7 +133,7 @@ fn try_login<S>(input_str: String, socket: &mut WebSocket<S>) -> LoginStatus whe
 fn encrypt_msg(key: &mut Option<Key<Aes256Gcm>>, msg: &AppMessage) -> (String, Nonce<typenum::U12>) {
     let msq_serial = serde_json::to_string(msg).unwrap();
     let cipher = Aes256Gcm::new(&(key).unwrap());
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let nonce: Nonce<typenum::U12> = Aes256Gcm::generate_nonce(&mut OsRng);
     let ciphertext = cipher.encrypt(&nonce, msq_serial.as_ref()).unwrap();
     return (from_utf8(&ciphertext).unwrap().to_string(), nonce); 
 }
@@ -200,20 +200,20 @@ fn key_exchange<S>(socket: &mut WebSocket<S>) -> SharedSecret where S: std::io::
 
 }
 
-fn send_encrypt<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) -> Result<Nonce<typenum::U12>, String> where S: std::io::Read, S: std::io::Write{
+fn send_encrypt<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write{
    
     let (encrypted_msg, nonce) = encrypt_msg(&mut Some(key.clone()), msg);
 
     socket.send(Message::Text(
-                encrypted_msg
+                serde_json::to_string::<(std::string::String, [u8; 12])>(&(encrypted_msg, nonce.into())).expect("serialization failed")
             )).expect("Send failed"); 
-    Ok(nonce)
+    Ok(())
 }
 
-fn recv_decrypt<S>(socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>, nonce: Nonce<typenum::U12>) -> Result<AppMessage, String> where S: std::io::Read, S: std::io::Write {
+fn recv_decrypt<S>(socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) -> Result<AppMessage, String> where S: std::io::Read, S: std::io::Write {
     
     let message = socket.read().expect("Error reading message"); 
-    let str_message_enc: String = message.to_text().unwrap().to_string(); 
+    let (str_message_enc, nonce_array) = message.to_text().unwrap().to_string(); 
     let app_msg = decrypt_msg(&mut Some(key.clone()), nonce, str_message_enc);
     return Ok(app_msg); 
 }
@@ -308,7 +308,13 @@ fn echo<S>(app_message: AppMessage,
     return Ok(()); 
 }
 
-
+fn get_encrypted_filenames<S>(filename: &String, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) where S: std::io::Read, S: std::io::Write {
+    // let msg = AppMessage {
+    //     cmd: 
+    // }
+    // send_encrypt()
+    // recv_decrypt(socket, key, nonce) 
+}
 
 
 /*
