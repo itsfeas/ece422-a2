@@ -87,7 +87,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         continue;
                     },
                     false => {
-                        dao::create_user(pg_client.clone(), user_name, pass, None, false).await.expect("could not create user!");
+                        dao::create_user(pg_client.clone(), user_name, pass, None, true).await.expect("could not create user!");
                         let response = AppMessage {
                             cmd: Cmd::NewUser,
                             data: Vec::new()
