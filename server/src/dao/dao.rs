@@ -154,7 +154,7 @@ pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<O
         Ok(Some(row)) => Ok(Some(User{
             id: row.get("id"),
             user_name: row.get("user_name"),
-            group_id: row.get("group_id"),
+            group_id: row.try_get("group_id").unwrap_or(None),
             key: row.get("key"),
             salt: row.get("salt"),
             is_admin: row.get("is_admin"),

@@ -21,7 +21,7 @@ pub struct FNode {
 pub struct User {
     pub id: i64,
     pub user_name: String,
-    pub group_id: i64,
+    pub group_id: Option<i64>,
     pub key: String,
     pub salt: String,
     pub is_admin: bool
