@@ -43,7 +43,7 @@ pub enum Cmd {
     Login,
     Ls,
     Mkdir,
-    Scan,
+    GetEncryptedFile,
     Mv,
     NewConnection,
     NewUser,
