@@ -299,7 +299,7 @@ fn unencrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str: &Strin
     let cipher = Aes256Gcm::new(&(*key).unwrap());
     let msg_tup: (String, [u8;12]) = serde_json::from_str(&encrypted_str).unwrap();
     let nonce: aes_gcm::Nonce<U12> = msg_tup.1.into();
-    match cipher.decrypt(&nonce, encrypted_str.as_ref()) {
+    match cipher.decrypt(&nonce, msg_tup.0.as_ref()) {
         Ok(plaintext) => Ok(from_utf8(&plaintext.to_owned()).unwrap().to_string()),
         Err(_) => Err(()),
     }
