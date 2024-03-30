@@ -245,6 +245,37 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     data: vec![plaintext_str],
                 }).await;
             },
+            Cmd::Mkdir => {
+                let path: Path = serde_json::from_str(msg.data.get(0).unwrap()).unwrap();
+                let path_str = path_to_str(path.clone());
+                let new_dir_name = msg.data.get(1).unwrap();
+                let encrypted_file_name = encrypt_string_nononce(&mut key, new_dir_name.clone()).unwrap();
+                let new_dir_f_node = FNode {
+                    id: 0,
+                    name: new_dir_name.clone(),
+                    path: path_str.clone(),
+                    owner: (*curr_user).to_string(),
+                    hash: "".to_string(),
+                    parent: path_str,
+                    dir: true,
+                    u: 7,
+                    g: 0,
+                    o: 0,
+                    children: vec![],
+                };
+                let update = dao::add_file(pg_client.clone(), new_dir_f_node).await;
+                let resp = match update {
+                    Ok(_) => AppMessage {
+                            cmd: Cmd::Mkdir,
+                            data: vec![encrypted_file_name.clone()],
+                        },
+                    Err(_) => AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["could not mkdir!".to_string()],
+                        },
+                };
+                send_app_message(&mut ws_stream, &mut key, resp).await;
+            },
             _ => todo!()
         }
     }
