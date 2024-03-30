@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
 use argon2::{
     password_hash::{
-        PasswordHash, PasswordHasher, PasswordVerifier, SaltString
+        Encoding, PasswordHash, PasswordHashString, PasswordHasher, PasswordVerifier, SaltString
     },
     Argon2
 };
@@ -43,7 +43,7 @@ pub fn salt_pass(pass: String) -> Result<String, String> {
     let salt = SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
     let argon2 = Argon2::default();
     match argon2.hash_password(b_pass, &salt) {
-        Ok(p) => Ok(p.to_string()),
+        Ok(p) => Ok(p.serialize().as_str().to_string()),
         Err(_) => Err("Error with salting pass".into()),
     }
 }
@@ -58,16 +58,19 @@ pub fn key_gen() -> Result<String, ()> {
     }
 }
 
-pub async fn auth_user(client: Arc<Mutex<Client>>, user_name: String, pass: String) -> Result<bool, String> {
-    let salted = match salt_pass(pass) {
-        Ok(salt) => salt,
-        Err(_) => return Err(format!("couldn't hash user pass while authenticating user!")),
-    };
-    let e = client.lock().await.query_one("SELECT user_name FROM users u WHERE u.user_name=$1 AND u.pass=$2",
-    &[&user_name, &salted]).await;
-    match e {
-        Ok(e) => Ok(true),  //Ok(e.get((0)==user_name)),
-        Err(_) => Err(format!("could not query whether user exists!")),
+pub async fn auth_user(client: Arc<Mutex<Client>>, user_name: String, pass: String) -> Result<bool, String> {    
+    let e = client.lock().await.query_one("SELECT user_name FROM users u WHERE u.user_name=$1",
+    &[&user_name]).await;
+    let res = match e {
+        Ok(row) => row,
+        Err(_) => return Err(format!("could not query whether user exists!")),
+    }; 
+    let hash: String = res.get("salt");
+    let hash_str: PasswordHashString = PasswordHashString::parse(hash.as_str(), Encoding::B64).unwrap();
+    let true_hash = hash_str.password_hash();
+    match Argon2::default().verify_password(pass.as_bytes(), &true_hash) {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
     }
 }
 
@@ -78,12 +81,8 @@ pub async fn create_user(client: Arc<Mutex<Client>>, user_name: String, pass: St
         Err(_) => return Err(format!("couldn't hash user pass while creating user!")),
     };
     let key = key_gen().expect("could not serialize symmetric key!");
-    let e = match group {
-        Some(_) => client.lock().await.execute("INSERT INTO users (user_name, group_id, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
-    &[&user_name, &group, &salt, &key, &is_admin]).await,
-        None => client.lock().await.execute("INSERT INTO users (user_name, salt, key, is_admin) VALUES ($1, $2, $3, $4)",
-    &[&user_name, &salt, &key, &is_admin]).await,
-    };
+    let e = client.lock().await.execute("INSERT INTO users (user_name, group_id, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
+    &[&user_name, &group, &salt, &key, &is_admin]).await;
     match e {
         Ok(_) => Ok(user_name),
         Err(e) => Err(format!("couldn't create user! {}", e)),
