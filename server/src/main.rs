@@ -87,11 +87,12 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         continue;
                     },
                     false => {
-                        dao::create_user(pg_client.clone(), user_name, pass, None, true).await.unwrap();
+                        dao::create_user(pg_client.clone(), user_name.clone(), pass, None, true).await.unwrap();
                         let response = AppMessage {
                             cmd: Cmd::NewUser,
-                            data: Vec::new()
+                            data: vec![user_name]
                         };
+                        authenticated = true;
                         send_app_message(&mut ws_stream, &mut key, response).await;
                         continue;
                     }
@@ -291,8 +292,8 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
 }
 
 async fn get_and_check_path(msg: &AppMessage, pg_client: &Arc<Mutex<Client>>, ws_stream: &mut WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>) -> Option<(Path, String, FNode)> {
-    let path: Path = serde_json::from_str(msg.data.get(0).unwrap()).unwrap();
-    let path_str = path_to_str(path.clone());
+    let path_str = msg.data.get(0).unwrap().to_string();
+    let path: Path = Path { path: path_str_to_vec(path_str.clone()).iter().map(|s| (false, s.to_string())).collect() };
     let res = dao::get_f_node(pg_client.clone(), path_str.clone()+msg.data.get(1).unwrap()).await
         .expect("could not perform get_f_node query!");
     let f_node = match check_curr_path(res, ws_stream, key).await {
@@ -431,4 +432,8 @@ fn path_to_str(path: Path) -> String {
         .map(|t| t.1.clone()+"/")
         .for_each(|s| path_str+= &s);
     path_str
+}
+
+fn path_str_to_vec(path: String) -> Vec<String> {
+    path.split('/').map(|s| s.to_string()).collect()
 }
