@@ -433,3 +433,7 @@ fn path_to_str(path: Path) -> String {
         .for_each(|s| path_str+= &s);
     path_str
 }
+
+fn path_str_to_vec(path: String) -> Vec<String> {
+    path.split('/').map(|s| s.to_string()).collect()
+}
