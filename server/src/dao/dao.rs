@@ -12,7 +12,7 @@ use argon2::{
     },
     Argon2
 };
-use model::model::FNode;
+use model::model::{FNode, User};
 
 pub async fn add_file(client: Arc<Mutex<Client>>, file: FNode) -> Result<String, String> {
     let e = client.lock().await.execute("INSERT INTO fnode values (name, path, owner, hash, parent, dir, u, g, o, children) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
@@ -143,10 +143,17 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
     }
 }
 
-pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<Option<String>, String> {
+pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<Option<User>, String> {
     let e = client.lock().await.query_opt("SELECT user_name FROM users WHERE user_name = $1", &[&user_name]).await;
     match e {
-        Ok(Some(_)) => Ok(Some(user_name)),
+        Ok(Some(row)) => Ok(Some(User{
+            id: row.get("id"),
+            user_name: row.get("user_name"),
+            group: row.get("group"),
+            key: row.get("key"),
+            salt: row.get("salt"),
+            is_admin: row.get("is_admin"),
+        })),
         Ok(None) => Ok(None),
         Err(_) => Err(format!("failed to get user!")),
     }

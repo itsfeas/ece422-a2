@@ -101,6 +101,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let pass = msg.data.get(1).expect("password not supplied!").to_owned();
                 let res = dao::auth_user(pg_client.clone(), user_name.clone(), pass).await
                     .expect("could not perform auth_user query!");
+                let res_user = dao::get_user(pg_client.clone(), user_name).await;
                 curr_user = Arc::new(user_name.clone());
                 authenticated = res;
             },
@@ -165,6 +166,13 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     },
                 };
                 send_app_message(&mut ws_stream, &mut key, resp).await;
+            },
+            Cmd::Scan => {
+                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+
             },
             Cmd::Echo => {
                 let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
