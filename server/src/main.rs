@@ -207,7 +207,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                             data: vec!["could not get encrypted filename!".to_string()],
                         },
                 };
-
+                send_app_message(&mut ws_stream, &mut key, msg).await;
             },
             Cmd::Echo => {
                 let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
@@ -238,7 +238,12 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     Some(value) => value,
                     None => continue,
                 };
-
+                let file_data = msg.data.get(2).unwrap();
+                let plaintext_str = unencrypt_string_nononce(&mut key, file_data).unwrap();
+                send_app_message(&mut ws_stream, &mut key, AppMessage {
+                    cmd: Cmd::Cat,
+                    data: vec![plaintext_str],
+                }).await;
             },
             _ => todo!()
         }
