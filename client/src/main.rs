@@ -1,5 +1,6 @@
 use std::{io::{self, Error}, ops::Neg, str::from_utf8}; 
 use log::Log;
+use std::{fs::File}; 
 use tungstenite::{connect, Message, WebSocket}; 
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use url::Url; 
@@ -216,6 +217,21 @@ fn command_parser(input_str: String) -> Result<AppMessage, String> {
 }
 
 
+fn extend_directory(fname: &String) -> String {
+
+    let relative_path = vec!["..", "FILESYSTEM", fname.as_str()].join("/"); 
+    return relative_path
+}
+
+
+
+
+
+
+
+
+
+
 fn key_exchange<S>(socket: &mut WebSocket<S>) -> SharedSecret where S: std::io::Read, S: std::io::Write { 
     
     let rand_num = rand::thread_rng(); 
@@ -319,6 +335,11 @@ fn touch<S>(app_message: AppMessage,
 
     let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
     if recv_app_message.cmd == Cmd::Touch {
+
+        let enc_fname = recv_app_message.data[0].clone(); 
+        let full_rel_path = extend_directory(&enc_fname);  
+        File::create(full_rel_path); 
+
         return Ok(());
     } else if recv_app_message.cmd == Cmd::Failure {
         println!("{}", recv_app_message.data[0]);
@@ -381,9 +402,26 @@ fn get_encrypted_filenames<S>(filenames: Vec<String>, socket: &mut WebSocket<S>,
 }
 
 
+
+
+
+
+
+
+
+
+///////////////////////////////////////
+///     PRE AND POST PROCESSING     ///
+///////////////////////////////////////
+
+
+
 /*
- * cmd_arg: argument of the cd command. For example: if command is cd /home/user/f1, 
+ *  cmd_arg: argument of the cd command. For example: if command is cd /home/user/f1, 
  *      then cmd_arg = "/home/user/f1"
+ *
+ *  Usage:
+ *      after Cd command confirmed to be successful, update the path 
  * */
 fn process_local_cd_path(cmd_arg: String, current_path: &mut Path) -> Result<(), String> {
     
@@ -395,6 +433,9 @@ fn process_local_cd_path(cmd_arg: String, current_path: &mut Path) -> Result<(),
         // if an element is "..", go back until there is only ["/"] in the vector
         if x == ".." && current_path.path.len() > 1  {
             current_path.path.pop(); 
+        } else if x == "." {
+            // do nothing 
+
         // otherwise, we append it to the end
         } else if !x.is_empty() {
             current_path.path.push((false, String::from(x)))
@@ -404,5 +445,40 @@ fn process_local_cd_path(cmd_arg: String, current_path: &mut Path) -> Result<(),
     Ok(())
 }
 
+
+/*
+ *  preprocesses app message to insert current path. 
+ *  Current path (in app message, as opposed to the argument current_path) 
+ *  will be replaced with the filename argument if filename is an absolute path
+ * */
+
+fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Result<(), String> {
+    
+    // assumes that current path has not been updated
+    let mut current_path_str: String;  
+    let mut filename = app_msg.data[0].clone(); 
+
+    // if root path specified, replace current path string with filename
+    if filename.starts_with("/") {
+        let mut current_path_vec = filename.split("/").map(|x| String::from(x)).collect::<Vec<String>>(); 
+        if let Some(s) = current_path_vec.pop() {
+            filename = s; 
+            current_path_str = current_path_vec.join("/"); 
+            current_path_str.insert_str(0, "/"); 
+        } else {
+            filename = String::from("/"); 
+            current_path_str = String::from("/"); 
+        }
+    // else, use current directory
+    } else  {
+        current_path_str = current_path.path.iter().map(|x| x.1.clone()).collect::<Vec<String>>().join("/"); 
+    }
+    
+    app_msg.data[0] = filename; 
+    app_msg.data.insert(0, current_path_str); 
+    
+    Ok(())
+
+}
 
 
