@@ -153,7 +153,7 @@ pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<O
             is_admin: row.get("is_admin"),
         })),
         Ok(None) => Ok(None),
-        Err(_) => Err(format!("failed to get user!")),
+        Err(err) => Err(format!("failed to get user! {}", err)),
     }
 }
 

@@ -1,4 +1,4 @@
-CREATE TABLE fnode (
+CREATE TABLE if not exists fnode  (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR,
     path VARCHAR,
@@ -12,17 +12,16 @@ CREATE TABLE fnode (
     children BIGINT[]
 );
 
-CREATE TABLE users (
-    id BIGSERIAL PRIMARY KEY,
-    user_name VARCHAR,
-    group BIGINT FOREIGN KEY groups.id,
-    key VARCHAR,
-    salt VARCHAR,
-    is_admin BOOLEAN
-);
-
-CREATE TABLE groups (
+CREATE TABLE if not exists groups(
     id BIGSERIAL PRIMARY KEY,
     users BIGINT[],
     name VARCHAR
+);
+CREATE TABLE if not exists users (
+    id BIGSERIAL PRIMARY KEY,
+    user_name VARCHAR,
+    group_id BIGINT references groups,
+    key VARCHAR,
+    salt VARCHAR,
+    is_admin BOOLEAN
 );

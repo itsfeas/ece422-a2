@@ -36,19 +36,19 @@ fn get_input(std_io: &io::Stdin, buffer: &mut String) {
 }
 
 fn main() -> Result<(), Error> {
-
+    
+    let server_addr = "127.0.0.1:8080";
+        
+    let url = Url::parse("ws://127.0.0.1:8080").expect("Failed to unwrap addr"); 
+    let (mut socket, response) = connect(url).expect("Failed to connect");
+    println!("WebSocket handshake has been successfully completed");
+    
+    // Key transfer at the beginning of the session
+    let diffie_key = key_exchange(&mut socket); 
+    // convert to Aes256Gcm key 
+    let aes_key: Key<Aes256Gcm> = diffie_key.to_bytes().into();
     loop {
 
-        let server_addr = "127.0.0.1:8080";
-        
-        let url = Url::parse("ws://127.0.0.1:8080").expect("Failed to unwrap addr"); 
-        let (mut socket, response) = connect(url).expect("Failed to connect");
-        println!("WebSocket handshake has been successfully completed");
-        
-        // Key transfer at the beginning of the session
-        let diffie_key = key_exchange(&mut socket); 
-        // convert to Aes256Gcm key 
-        let aes_key: Key<Aes256Gcm> = diffie_key.to_bytes().into();
         let mut line = String::new();
         let std_io = io::stdin();
         println!("Welcome");
@@ -146,10 +146,11 @@ fn login_signup<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Ae
     
     send_encrypt(msg, socket, key);
     println!("Message sent"); 
-    let response = socket.read().expect("Error reading message");
-    println!("Received: {}", response);
+    // let response = socket.read().expect("Error reading message");
+    let login_res = recv_decrypt(socket, key).unwrap();
+    // println!("Received: {}", response);
     // println!("DEBUG: reached"); 
-    let login_res: AppMessage = serde_json::from_str(response.to_text().unwrap()).expect("Deserialize failed for login/signup response!");
+    // let login_res: AppMessage = serde_json::from_str(response.to_text().unwrap()).expect("Deserialize failed for login/signup response!");
     // let server_public: Cmd = serde_json::from_str(&login_res.cmd).expect("Deserialize failed for server_public!");
     match login_res.cmd {
         Cmd::NewUser => {
@@ -188,12 +189,13 @@ fn encrypt_msg(key: &mut Option<Key<Aes256Gcm>>, msg: &AppMessage) -> (String, N
     let cipher = Aes256Gcm::new(&(key).unwrap());
     let nonce: Nonce<typenum::U12> = Aes256Gcm::generate_nonce(&mut OsRng);
     let ciphertext = cipher.encrypt(&nonce, msq_serial.as_ref()).unwrap();
-    return (serde_json::to_string(&ciphertext).unwrap(), nonce); 
+    return (serde_json::to_string(&ciphertext).unwrap().to_string(), nonce); 
 }
 
 fn decrypt_msg(key: &mut Option<Key<Aes256Gcm>>, nonce: Nonce<typenum::U12>, string_msg: String) -> AppMessage {
     let cipher = Aes256Gcm::new(&(key).unwrap());
-    let ciphertext = cipher.decrypt(&nonce, string_msg.as_bytes()).expect("Decryption failed");
+    let from_str: Vec<u8> = serde_json::from_str(&string_msg).unwrap();
+    let ciphertext = cipher.decrypt(&nonce, from_str.as_ref()).unwrap();
 
     let rec_app_message:AppMessage = serde_json::from_str(
             String::from_utf8(ciphertext).unwrap().as_str()
@@ -203,12 +205,12 @@ fn decrypt_msg(key: &mut Option<Key<Aes256Gcm>>, nonce: Nonce<typenum::U12>, str
 
 fn command_parser(input_str: String) -> Result<AppMessage, String> {
     let mut result = input_str.split_whitespace().map(|simple_str| String::from(simple_str)).collect::<Vec<String>>();  
-
+    let args = result.split_off(1);
     let message = match result.get(0) {
         Some(cmd_val) => {
             AppMessage {
                 cmd: Cmd::from_str(cmd_val.clone()).expect("command could not be mapped!"), 
-                data: result 
+                data: args
             }
         }, 
         None => return Err("Failure".to_string()), 

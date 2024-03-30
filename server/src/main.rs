@@ -59,7 +59,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
     let mut echo_accepting_data = false;
     let mut dual_msg_flag = false;
     while let Some(m) = ws_stream.next().await {
-        let m = m.expect("panicked while checking validity of message");
+        let m = m.unwrap();
         if !m.is_text() && m.is_binary() {
             continue;
         }
@@ -298,7 +298,7 @@ fn encrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> Result<(S
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let encrypt = cipher.encrypt(&nonce, s.as_ref());
     match encrypt {
-        Ok(e) => Ok((from_utf8(&e).unwrap().to_string(), nonce.into())),
+        Ok(e) => Ok((serde_json::to_string(&e).unwrap(), nonce.into())),
         Err(_) => Err(()),
     }
 }
@@ -317,6 +317,7 @@ fn handle_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg_serial
     match encrypted {
         true => {
             let plaintext_str = unencrypt_string(key, &msg_serialized).unwrap();
+            println!("DECRYPTED_MSG: {}", plaintext_str.clone());
             serde_json::from_str(&plaintext_str).unwrap()
         },
         false => serde_json::from_str(&msg_serialized).unwrap(),
@@ -326,8 +327,9 @@ fn handle_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg_serial
 fn unencrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str: &String) -> Result<String, ()> {
     let cipher = Aes256Gcm::new(&(*key).unwrap());
     let msg_tup: (String, [u8;12]) = serde_json::from_str(&encrypted_str).unwrap();
+    let encrypted_u8: Vec<u8> = serde_json::from_str(&msg_tup.0).unwrap();
     let nonce: aes_gcm::Nonce<U12> = msg_tup.1.into();
-    match cipher.decrypt(&nonce, msg_tup.0.as_ref()) {
+    match cipher.decrypt(&nonce, encrypted_u8.as_ref()) {
         Ok(plaintext) => Ok(from_utf8(&plaintext.to_owned()).unwrap().to_string()),
         Err(_) => Err(()),
     }
