@@ -1,6 +1,7 @@
 #took help from: https://github.com/docker/awesome-compose
 version: '3.8'
 
+# https://stackoverflow.com/questions/75246059/create-a-postgres-database-within-a-docker-compose-yml-file
 services:
   db:
     image: postgres
@@ -13,9 +14,9 @@ services:
       POSTGRES_USER: USER
       POSTGRES_PASSWORD: ${DB_PASS}
       POSTGRES_DB: db
-      PGDATA: /db/postgres
     volumes:
-      - db-data:/db/postgres
+      - db-data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     # depends_on:
     #   - db
   # server:
