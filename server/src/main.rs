@@ -21,7 +21,7 @@ mod dao;
 // - https://docs.rs/aes-gcm/latest/aes_gcm/
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let db_pass = env::var("DB_PASS").expect("DB_PASS environment variable not set");
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
     let (client, connection) =
         tokio_postgres::connect(&format!("host=localhost dbname=db user=USER password={}", db_pass), NoTls).await
         .unwrap();
@@ -77,17 +77,17 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let pass = msg.data.get(1).expect("password not supplied!").to_owned();
                 let does_user_exist = dao::get_user(pg_client.clone(), user_name.clone()).await
                     .expect("could not perform get_user query!");
-                match does_user_exist.is_none() {
+                match does_user_exist.is_some() {
                     true => {
                         let response = AppMessage {
                             cmd: Cmd::Failure,
-                            data: Vec::new()
+                            data: vec!["user already exists! you can't make an account!".to_string()]
                         };
                         send_app_message(&mut ws_stream, &mut key, response).await;
                         continue;
                     },
                     false => {
-                        dao::create_user(pg_client.clone(), user_name, pass, None, true).await.expect("could not create user!");
+                        dao::create_user(pg_client.clone(), user_name, pass, None, true).await.unwrap();
                         let response = AppMessage {
                             cmd: Cmd::NewUser,
                             data: Vec::new()

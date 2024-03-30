@@ -196,7 +196,7 @@ fn decrypt_msg(key: &mut Option<Key<Aes256Gcm>>, nonce: Nonce<typenum::U12>, str
     let cipher = Aes256Gcm::new(&(key).unwrap());
     let from_str: Vec<u8> = serde_json::from_str(&string_msg).unwrap();
     let ciphertext = cipher.decrypt(&nonce, from_str.as_ref()).unwrap();
-
+    println!("msg_recv {}", String::from_utf8(ciphertext.clone()).unwrap().as_str());
     let rec_app_message:AppMessage = serde_json::from_str(
             String::from_utf8(ciphertext).unwrap().as_str()
         ).expect("Invalid deserializeation"); 

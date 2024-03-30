@@ -12,7 +12,7 @@ use argon2::{
 use model::model::{FNode, User};
 
 pub async fn add_file(client: Arc<Mutex<Client>>, file: FNode) -> Result<String, String> {
-    let e = client.lock().await.execute("INSERT INTO fnode values (name, path, owner, hash, parent, dir, u, g, o, children) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+    let e = client.lock().await.execute("INSERT INTO fnode (name, path, owner, hash, parent, dir, u, g, o, children) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
     &[&file.name, &file.path, &file.owner, &file.hash, &file.parent, &file.dir, &file.u, &file.g, &file.o, &file.children]).await;
     match e {
         Ok(_) => Ok(file.name),
@@ -78,16 +78,20 @@ pub async fn create_user(client: Arc<Mutex<Client>>, user_name: String, pass: St
         Err(_) => return Err(format!("couldn't hash user pass while creating user!")),
     };
     let key = key_gen().expect("could not serialize symmetric key!");
-    let e = client.lock().await.execute("INSERT INTO users values (user_name, group_id, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
-    &[&user_name, &group, &salt, &key, &is_admin]).await;
+    let e = match group {
+        Some(_) => client.lock().await.execute("INSERT INTO users (user_name, group_id, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
+    &[&user_name, &group, &salt, &key, &is_admin]).await,
+        None => client.lock().await.execute("INSERT INTO users (user_name, salt, key, is_admin) VALUES ($1, $2, $3, $4)",
+    &[&user_name, &salt, &key, &is_admin]).await,
+    };
     match e {
         Ok(_) => Ok(user_name),
-        Err(_) => Err(format!("couldn't create user!")),
+        Err(e) => Err(format!("couldn't create user! {}", e)),
     }
 }
 
 pub async fn create_group(client: Arc<Mutex<Client>>, group_name: String) -> Result<String, String>{
-    let e = client.lock().await.execute("INSERT INTO groups values (name, users) VALUES ($1, $2)",
+    let e = client.lock().await.execute("INSERT INTO groups (name, users) VALUES ($1, $2)",
     &[&group_name, &Vec::<i64>::new()]).await;
     match e {
         Ok(_) => Ok(group_name),
