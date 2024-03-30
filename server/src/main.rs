@@ -1,9 +1,9 @@
-use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, hash::{self, Hasher}, io::Error, ops::ControlFlow, rc::Rc, sync::Arc, vec};
+use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, env, fmt, hash::{self, Hasher}, io::Error, ops::ControlFlow, rc::Rc, sync::Arc, vec};
 use futures::SinkExt;
 use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::{net::{TcpListener, TcpStream}, sync::Mutex};
 use log::info;
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::{Client, Config, NoTls};
 use model::model::{AppMessage, Cmd, Path, FNode};
 use tokio_tungstenite::{tungstenite::{http::response, Message}, WebSocketStream};
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
@@ -21,8 +21,9 @@ mod dao;
 // - https://docs.rs/aes-gcm/latest/aes_gcm/
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    let db_pass = env::var("DB_PASS").expect("DB_PASS environment variable not set");
     let (client, connection) =
-        tokio_postgres::connect("host=localhost user=postgres", NoTls).await
+        tokio_postgres::connect(&format!("host=localhost dbname=db user=USER password=${}", db_pass), NoTls).await
         .expect("Could not form connection with DB!");
     let pg_client = Arc::new(Mutex::new(client));
     tokio::spawn(async move {
@@ -186,6 +187,14 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     Some(value) => value,
                     None => continue,
                 };
+                let unencrypted_filename = msg.data.get(0).unwrap();
+                let f_node = dao::get_f_node(pg_client.clone(), path_str+unencrypted_filename).await;
+                match f_node {
+                    Ok(f) => {
+
+                    },
+                    Err(_) => todo!(),
+                }
 
             },
             Cmd::Echo => {
