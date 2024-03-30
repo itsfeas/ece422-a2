@@ -1,4 +1,5 @@
 use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, env, fmt, hash::{self, Hasher}, io::Error, ops::ControlFlow, rc::Rc, sync::Arc, vec};
+use aes_gcm_siv::Aes256GcmSiv;
 use futures::SinkExt;
 use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::{net::{TcpListener, TcpStream}, sync::Mutex};
@@ -166,7 +167,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 };
                 let resp = match dao::add_file(pg_client.clone(), new_file).await {
                     Ok(file_name) => {
-                        let encrypted_file = encrypt_string(&mut key, file_name).expect("could not encrypt file name!");
+                        let encrypted_file = encrypt_string_nononce(&mut key, file_name).expect("could not encrypt file name!");
                         AppMessage {
                             cmd: Cmd::Touch,
                             data: vec![encrypted_file],
@@ -187,13 +188,25 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     None => continue,
                 };
                 let unencrypted_filename = msg.data.get(0).unwrap();
-                let f_node = dao::get_f_node(pg_client.clone(), path_str+unencrypted_filename).await;
-                match f_node {
-                    Ok(f) => {
-
+                let f_node = dao::get_f_node(pg_client.clone(), path_str+unencrypted_filename).await.unwrap();
+                let user = dao::get_user(pg_client.clone(), (*curr_user).clone()).await.unwrap();
+                let msg = match (f_node, user) {
+                    (Some(f), Some(u)) => {
+                        let u8_32_arr: [u8; 32] = serde_json::from_str(&u.key).unwrap();
+                        let user_key: Key<Aes256Gcm> = u8_32_arr.into();
+                        // let k: aes_gcm::Key<Aes256Gcm> = u.key.as_bytes();
+                        // let u8_arr: aes_gcm::Key<Aes256Gcm> = u.key.as_bytes().to_vec().into();
+                        let filename_enc = encrypt_string_nononce(&mut Arc::new(Some(user_key)), f.name);
+                        AppMessage {
+                            cmd: Cmd::GetEncryptedFile,
+                            data: vec![filename_enc.unwrap()],
+                        }
                     },
-                    Err(_) => todo!(),
-                }
+                    (_, _) => AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["could not get encrypted filename!".to_string()],
+                        },
+                };
 
             },
             Cmd::Echo => {
@@ -203,9 +216,9 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 };
                 let file_data = msg.data.get(2).unwrap();
                 let additional_str = msg.data.get(3).unwrap();
-                let plaintext_str = unencrypt_string(&mut key, file_data).unwrap();
+                let plaintext_str = unencrypt_string_nononce(&mut key, file_data).unwrap();
                 let new_file_str = plaintext_str.to_owned()+additional_str;
-                let encrypted_file_data = encrypt_string(&mut key, new_file_str.clone()).unwrap();
+                let encrypted_file_data = encrypt_string_nononce(&mut key, new_file_str.clone()).unwrap();
                 let new_hash = hash_file(f_node.name.clone(), new_file_str.clone());
                 let update = dao::update_hash(pg_client.clone(), path_str, f_node.name, new_hash).await;
                 let resp = match update {
@@ -270,17 +283,27 @@ async fn check_curr_path(res: Option<FNode>, ws_stream: &mut WebSocketStream<Tcp
 }
 
 
-fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> Result<String, ()> {
+fn encrypt_msg(key: &mut Arc<Option<Key<Aes256Gcm>>>, msg: &AppMessage) -> Result<(String, [u8;12]), ()> {
     let msg_serialized = serde_json::to_string(msg).unwrap();
     encrypt_string(key, msg_serialized)
 }
 
-fn encrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> Result<String, ()> {
+fn encrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> Result<(String, [u8;12]), ()> {
     let cipher = Aes256Gcm::new(&(*key).unwrap());
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let encrypt = cipher.encrypt(&nonce, s.as_ref());
     match encrypt {
-        Ok(e) => Ok(from_utf8(&e).unwrap().to_string()),
+        Ok(e) => Ok((from_utf8(&e).unwrap().to_string(), nonce.into())),
+        Err(_) => Err(()),
+    }
+}
+
+fn encrypt_string_nononce(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> Result<String, ()> {
+    let cipher = Aes256Gcm::new(&(*key).unwrap());
+    let nonce: Nonce<U12> = [0,0,0,0,0,0,0,0,0,0,0,0].into();
+    let encrypt = cipher.encrypt(&nonce, s.as_ref());
+    match encrypt {
+        Ok(e) => Ok((from_utf8(&e).unwrap().to_string())),
         Err(_) => Err(()),
     }
 }
@@ -300,6 +323,16 @@ fn unencrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str: &Strin
     let msg_tup: (String, [u8;12]) = serde_json::from_str(&encrypted_str).unwrap();
     let nonce: aes_gcm::Nonce<U12> = msg_tup.1.into();
     match cipher.decrypt(&nonce, msg_tup.0.as_ref()) {
+        Ok(plaintext) => Ok(from_utf8(&plaintext.to_owned()).unwrap().to_string()),
+        Err(_) => Err(()),
+    }
+}
+
+fn unencrypt_string_nononce(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str: &String) -> Result<String, ()> {
+    let cipher = Aes256Gcm::new(&(*key).unwrap());
+    let msg_tup: String = serde_json::from_str(&encrypted_str).unwrap();
+    let nonce: Nonce<U12> = [0,0,0,0,0,0,0,0,0,0,0,0].into();
+    match cipher.decrypt(&nonce, encrypted_str.as_ref()) {
         Ok(plaintext) => Ok(from_utf8(&plaintext.to_owned()).unwrap().to_string()),
         Err(_) => Err(()),
     }
@@ -334,7 +367,7 @@ async fn key_exchange_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<
 // }
 
 async fn send_app_message(ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>, resp: AppMessage) {
-    let resp_encrypted = encrypt_msg(key, &resp);
+    let resp_encrypted = encrypt_msg(key, &resp).unwrap();
     ws_stream.send(Message::text(serde_json::to_string(&resp_encrypted).unwrap())).await.unwrap();
 }
 
