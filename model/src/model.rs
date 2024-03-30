@@ -66,9 +66,11 @@ pub struct Path {
 
 impl std::fmt::Display for Path {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let path_string = self.path.iter().map(|x| {
+        let mut path_string = self.path.iter().map(|x| {
                     x.1.clone()
-                }).filter(|x| x != "/").collect::<Vec<String>>().join("/"); 
+                }).filter(|x| x != "/").collect::<Vec<String>>().join("/");
+
+        path_string.insert_str(0, "/"); 
         write!(f, "{}", path_string); 
         Ok(())
     }

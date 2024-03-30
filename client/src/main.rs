@@ -529,7 +529,8 @@ fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Resu
         }
     // else, use current directory
     } else  {
-        current_path_str = current_path.path.iter().map(|x| x.1.clone()).collect::<Vec<String>>().join("/"); 
+        current_path_str = current_path.path.iter().map(|x| x.1.clone()).collect::<Vec<String>>().join("/");
+        current_path_str.remove(0); 
     }
     
     app_msg.data[0] = filename; 
