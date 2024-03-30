@@ -81,8 +81,12 @@ pub async fn create_user(client: Arc<Mutex<Client>>, user_name: String, pass: St
         Err(_) => return Err(format!("couldn't hash user pass while creating user!")),
     };
     let key = key_gen().expect("could not serialize symmetric key!");
-    let e = client.lock().await.execute("INSERT INTO users (user_name, group_id, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
-    &[&user_name, &group, &salt, &key, &is_admin]).await;
+    let e = match group {
+        Some(_) => client.lock().await.execute("INSERT INTO users (user_name, group_id, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
+    &[&user_name, &group, &salt, &key, &is_admin]).await,
+        None => client.lock().await.execute("INSERT INTO users (user_name, salt, key, is_admin) VALUES ($1, $2, $3, $4)",
+    &[&user_name, &salt, &key, &is_admin]).await,
+    };
     match e {
         Ok(_) => Ok(user_name),
         Err(e) => Err(format!("couldn't create user! {}", e)),
