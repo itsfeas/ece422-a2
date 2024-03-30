@@ -48,7 +48,7 @@ fn main() -> Result<(), Error> {
         let diffie_key = key_exchange(&mut socket); 
         // convert to Aes256Gcm key 
         let aes_key = Aes256Gcm::new((&diffie_key.to_bytes()).into());
-
+        // let u8_arr: [u8; 12] = aes_key.into();
         let mut line = String::new();
         let std_io = io::stdin();
         println!("Welcome");
@@ -65,7 +65,7 @@ fn main() -> Result<(), Error> {
         let mut login_state;
         match app_message.cmd {
             Cmd::Login | Cmd::NewUser => {
-                login_state = login_signup(&app_message, &mut socket);  
+                login_state = login_signup(&app_message, &mut socket, &aes_key);  
             },
             _ => {
                 println!("Please use one of the commands as specified.");
@@ -141,10 +141,10 @@ fn main() -> Result<(), Error> {
 
 /*
  * input_str: either the username, or "new" */
-fn login_signup<S>(msg: &AppMessage, socket: &mut WebSocket<S>) -> LoginStatus where S: std::io::Read, S: std::io::Write  {
+fn login_signup<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &Key<Aes256Gcm>) -> LoginStatus where S: std::io::Read, S: std::io::Write  {
 
     
-    socket.send(Message::Text(serde_json::to_string(&msg).unwrap())).unwrap();
+    send_encrypt(msg, socket, key);
     println!("Message sent"); 
     let response = socket.read().expect("Error reading message");
     println!("Received: {}", response);
@@ -253,9 +253,9 @@ fn key_exchange<S>(socket: &mut WebSocket<S>) -> SharedSecret where S: std::io::
 
 }
 
-fn send_encrypt<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write{
+fn send_encrypt<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write{
    
-    let (encrypted_msg, nonce) = encrypt_msg(&mut Some(key.clone()), msg);
+    let (encrypted_msg, nonce) = encrypt _msg(&mut Some(key.clone()), msg);
 
     socket.send(Message::Text(
                 serde_json::to_string::<(std::string::String, [u8; 12])>(&(encrypted_msg, nonce.into())).expect("serialization failed")
