@@ -101,21 +101,22 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let pass = msg.data.get(1).expect("password not supplied!").to_owned();
                 let res_auth = dao::auth_user(pg_client.clone(), user_name.clone(), pass).await
                     .expect("could not perform auth_user query!");
-                let res_user = dao::get_user(pg_client.clone(), user_name).await;
-                match (res_auth, res_user) {
+                let res_user = dao::get_user(pg_client.clone(), user_name.clone()).await;
+                let msg = match (res_auth, res_user) {
                     (true, Ok(u)) => {
                         AppMessage {
                             cmd: Cmd::Login,
-                            data: vec![user_name.clone(), u.unwrap_or(default)],
-                        };
+                            data: vec![user_name.clone(), u.unwrap().is_admin.to_string()],
+                        }
                     },
                     ((true, Err(_)) | (false, _)) => {
                         AppMessage {
                             cmd: Cmd::Failure,
                             data: vec!["failed to login!".to_string()],
-                        };
+                        }
                     },
-                }
+                };
+                send_app_message(&mut ws_stream, &mut key, msg).await;
                 authenticated = res_auth;
             },
             Cmd::Cd => {
