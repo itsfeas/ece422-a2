@@ -61,6 +61,9 @@ fn main() -> Result<(), Error> {
                 path: vec![(false, "/".into()), (false, "home".into()), (false, s.clone())]
             };
 
+            // integrity check with server 
+            
+
             loop {
 
                 // obtain input from command line 
@@ -271,7 +274,20 @@ fn touch<S>(app_message: AppMessage,
 }
 
 
+fn pwd(app_message: AppMessage, 
+       current_path: &Path) -> Result<(), Error> {
+    let mut str_path = current_path.path.iter().map(|x| {
+        if x.clone().0 {
+            panic!("encrypted message received")
+        }
+        x.1.clone()
+    }).collect::<Vec<String>>().join("/"); 
+    
+    str_path.insert_str(0, "/"); 
+    println!("{}", str_path); 
+    Ok(())
 
+}
 
 
 fn echo<S>(app_message: AppMessage, 
