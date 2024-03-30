@@ -23,8 +23,8 @@ mod dao;
 async fn main() -> Result<(), Error> {
     let db_pass = env::var("DB_PASS").expect("DB_PASS environment variable not set");
     let (client, connection) =
-        tokio_postgres::connect(&format!("host=localhost dbname=db user=USER password=${}", db_pass), NoTls).await
-        .expect("Could not form connection with DB!");
+        tokio_postgres::connect(&format!("host=localhost dbname=db user=USER password={}", db_pass), NoTls).await
+        .unwrap();
     let pg_client = Arc::new(Mutex::new(client));
     tokio::spawn(async move {
         if let Err(e) = connection.await {
