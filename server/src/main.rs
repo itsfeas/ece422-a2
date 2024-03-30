@@ -165,7 +165,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     o: 0,
                     children: vec![],
                 };
-                let resp = match dao::add_file(pg_client.clone(), new_file).await {
+                let mut resp = match dao::add_file(pg_client.clone(), new_file).await {
                     Ok(file_name) => {
                         let encrypted_file = encrypt_string_nononce(&mut key, file_name).expect("could not encrypt file name!");
                         AppMessage {
@@ -177,6 +177,15 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         AppMessage {
                             cmd: Cmd::Failure,
                             data: vec!["FNode could not be created!".to_string()],
+                        }
+                    },
+                };
+                match dao::add_file_to_parent(pg_client.clone(), path_str.clone(), new_file_name.clone()).await {
+                    Ok(_) => {},
+                    Err(_) => {
+                        resp = AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["FNode parent could not be updated!".to_string()],
                         }
                     },
                 };
