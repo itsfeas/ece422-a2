@@ -1,9 +1,6 @@
 use std::{fmt::format, sync::Arc};
 
-use aes_gcm_siv::{
-    aead::{Aead, KeyInit},
-    Aes256GcmSiv, Nonce
-};
+use aes_gcm::{Aes256Gcm, KeyInit};
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
 use argon2::{
@@ -53,8 +50,9 @@ pub fn salt_pass(pass: String) -> Result<String, String> {
 
 // https://docs.rs/aes-gcm-siv/0.11.1/aes_gcm_siv/
 pub fn key_gen() -> Result<String, ()> {
-    let key = Aes256GcmSiv::generate_key(&mut aes_gcm_siv::aead::OsRng);
-    match serde_json::to_string(&key.to_vec()) {
+    let key = Aes256Gcm::generate_key(&mut aes_gcm_siv::aead::OsRng);
+    let u8_32_arr: [u8; 32] = key.into();
+    match serde_json::to_string(&u8_32_arr) {
         Ok(s) => Ok(s),
         Err(_) => Err(()),
     }
