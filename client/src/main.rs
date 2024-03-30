@@ -1,10 +1,11 @@
-use std::{io::Error, str::from_utf8}; 
+use std::{io::{self, Error}, ops::Neg, str::from_utf8}; 
+use log::Log;
 use tungstenite::{connect, Message, WebSocket}; 
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use url::Url; 
 use serde::{Serialize, Deserialize};
 use futures::Stream;
-use model::{cmd::MapStr, model::{AppMessage, Cmd, Path}};
+use model::{cmd::{self, MapStr}, model::{AppMessage, Cmd, Path}};
 use rand_core::OsRng;
 // use serde::{serialize, deserialize};
 use aes_gcm::{
@@ -15,9 +16,9 @@ use typenum::U12;
 
 #[derive(Debug, Clone)]
 enum LoginStatus {
-    New(String),
-    Attempt(String), 
-    Failed(String)
+    New(),
+    Success((String, bool)), 
+    Failure()
 }
 
 
@@ -27,6 +28,11 @@ enum LoginStatus {
 /// FUNCTIONS                 ///
 ///                           ///
 /////////////////////////////////
+
+fn get_input(std_io: &io::Stdin, buffer: &mut String) {
+    std_io.read_line(buffer).expect("failed to readline");
+    buffer.pop();
+}
 
 fn main() -> Result<(), Error> {
 
@@ -43,31 +49,56 @@ fn main() -> Result<(), Error> {
         // convert to Aes256Gcm key 
         let aes_key = Aes256Gcm::new((&diffie_key.to_bytes()).into());
 
-
+        let mut line = String::new();
+        let std_io = io::stdin();
+        println!("Welcome");
+        println!("Login as follows: login <username> <password>");
+        println!("Or sign up as a new user: new_user <username> <password>");
         // obtain input from command line 
-        let cmd_input = String::from("new"); // placeholder -- user can type username or "new"
+        get_input(&std_io, &mut line);
+        let cmd_input = String::from(line); // placeholder -- user can type username or "new"
+        println!("DEBUG: {:?}", cmd_input);
 
         let app_message = command_parser(cmd_input.clone()).unwrap();  
-        println!("DEBUG: {:?}", app_message); 
+        println!("DEBUG: {:?}", app_message);
+
+        let mut login_state;
+        match app_message.cmd {
+            Cmd::Login | Cmd::NewUser => {
+                login_state = login_signup(&app_message, &mut socket);  
+            },
+            _ => {
+                println!("Please use one of the commands as specified.");
+                continue;
+            }
+        }
         
-        let login_state = try_login(cmd_input, &mut socket);  
-        if let LoginStatus::New(s) = login_state.clone() {
-            // create new user
-        };  
-        if let LoginStatus::Attempt(s) = login_state.clone() {
+        
+        if let LoginStatus::New() = login_state.clone() {
+            println!("signup successful");
+            continue;
+        };
+        if let LoginStatus::Failure() = login_state.clone() {
+            println!("failure");
+            continue;
+        };
+        if let LoginStatus::Success(s) = login_state.clone() {
             
-            
+            println!("login successful");
             let mut path = Path {
-                path: vec![(false, "/".into()), (false, "home".into()), (false, s.clone())]
+                path: vec![(false, "/".into()), (false, "home".into()), (false, s.0.clone())]
             };
 
             // integrity check with server 
             
 
             loop {
-
+                println!("Enter Command");
+                let mut line = String::new();
+                let std_io = io::stdin();
+                get_input(&std_io, &mut line);
                 // obtain input from command line 
-                let cmd_input = String::from("new"); 
+                let cmd_input = String::from(line); 
 
                 let app_message = command_parser(cmd_input).unwrap();  
                 println!("DEBUG: {:?}", app_message); 
@@ -100,7 +131,7 @@ fn main() -> Result<(), Error> {
 
 
     }
-    Ok(())
+    // Ok(())
 }
 
 // fn setup_connection<S>(socket: &mut WebSocket<S>) where S: std::io::Read, S: std::io::Write {
@@ -110,21 +141,43 @@ fn main() -> Result<(), Error> {
 
 /*
  * input_str: either the username, or "new" */
-fn try_login<S>(input_str: String, socket: &mut WebSocket<S>) -> LoginStatus where S: std::io::Read, S: std::io::Write  {
+fn login_signup<S>(msg: &AppMessage, socket: &mut WebSocket<S>) -> LoginStatus where S: std::io::Read, S: std::io::Write  {
 
     
+    socket.send(Message::Text(serde_json::to_string(&msg).unwrap())).unwrap();
+    println!("Message sent"); 
+    let response = socket.read().expect("Error reading message");
+    println!("Received: {}", response);
+    // println!("DEBUG: reached"); 
+    let login_res: AppMessage = serde_json::from_str(response.to_text().unwrap()).expect("Deserialize failed for login/signup response!");
+    // let server_public: Cmd = serde_json::from_str(&login_res.cmd).expect("Deserialize failed for server_public!");
+    match login_res.cmd {
+        Cmd::NewUser => {
+            return LoginStatus::Success((String:: from("signup successful"), false));
+        },
+        Cmd::Login => {
+            let is_admin: bool = match login_res.data[1].as_str() {
+                "true" => true,
+                "false" => false,
+                _ => false
+            };
+            return LoginStatus::Success((login_res.data[0].clone(),is_admin));
+        },
+        Cmd::Failure => {
+            return LoginStatus::Failure();
+        },
+        _ => {todo!()}
+
+    }
+    // user types username 
+    // let username = String::from("itsnotfeas"); 
+
+    // encrypt
     
-        // println!("DEBUG: reached"); 
-        
-        // user types username 
-        let username = String::from("itsnotfeas"); 
+    
+    // send to socket (username, encrypted username)
 
-        // encrypt
-        
-        
-        // send to socket (username, encrypted username)
-
-        return LoginStatus::New(username); 
+    // return LoginStatus::New(username); 
 
     // LoginStatus::Failed("".to_string())
     // else
@@ -151,10 +204,10 @@ fn decrypt_msg(key: &mut Option<Key<Aes256Gcm>>, nonce: Nonce<typenum::U12>, str
 fn command_parser(input_str: String) -> Result<AppMessage, String> {
     let mut result = input_str.split_whitespace().map(|simple_str| String::from(simple_str)).collect::<Vec<String>>();  
 
-    let message = match result.pop() {
+    let message = match result.get(0) {
         Some(cmd_val) => {
             AppMessage {
-                cmd: Cmd::from_str(cmd_val).expect("command could not be mapped!"), 
+                cmd: Cmd::from_str(cmd_val.clone()).expect("command could not be mapped!"), 
                 data: result 
             }
         }, 

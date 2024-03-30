@@ -1,4 +1,4 @@
-use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, hash::{self, Hasher}, io::Error, ops::ControlFlow, rc::Rc, sync::Arc, vec};
+use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, env::var, hash::{self, Hasher}, io::Error, ops::ControlFlow, rc::Rc, sync::Arc, vec};
 use futures::SinkExt;
 use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::{net::{TcpListener, TcpStream}, sync::Mutex};
@@ -21,8 +21,9 @@ mod dao;
 // - https://docs.rs/aes-gcm/latest/aes_gcm/
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    // let pg_pass = std::env::var("POSTGRES_PASSWORD").expect("POSTGRES_PASSWORD should be set in the environment");
     let (client, connection) =
-        tokio_postgres::connect("host=localhost user=postgres", NoTls).await
+        tokio_postgres::connect("host=localhost user=USER password=rusticle dbname=db", NoTls).await
         .expect("Could not form connection with DB!");
     let pg_client = Arc::new(Mutex::new(client));
     tokio::spawn(async move {
@@ -86,7 +87,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         continue;
                     },
                     false => {
-                        dao::create_user(pg_client.clone(), user_name, pass, None, false).await.expect("could not create user!");
+                        dao::create_user(pg_client.clone(), user_name, pass, None, true).await.expect("could not create user!");
                         let response = AppMessage {
                             cmd: Cmd::NewUser,
                             data: Vec::new()
