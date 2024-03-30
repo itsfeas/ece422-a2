@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive()]
 pub struct FNode {
-    pub id: String,
+    pub id: i64,
     pub name: String,
     pub path: String,
     pub owner: String,
@@ -19,9 +19,9 @@ pub struct FNode {
 
 #[derive()]
 pub struct User {
-    pub id: String,
+    pub id: i64,
     pub user_name: String,
-    pub group_id: String,
+    pub group_id: Option<i64>,
     pub key: String,
     pub salt: String,
     pub is_admin: bool
@@ -30,7 +30,7 @@ pub struct User {
 
 #[derive()]
 pub struct Group {
-    pub id: String,
+    pub id: i64,
     pub users: Vec<String>,
     pub name: String,
 }

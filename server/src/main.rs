@@ -153,7 +153,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 };
                 let new_file_name = msg.data.get(1).unwrap();
                 let new_file = FNode {
-                    id: (-1).to_string(),
+                    id: -1,
                     name: new_file_name.clone(),
                     path: path_str.clone()+&new_file_name.clone(),
                     owner: (*curr_user).clone(),
@@ -165,7 +165,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     o: 0,
                     children: vec![],
                 };
-                let resp = match dao::add_file(pg_client.clone(), new_file).await {
+                let mut resp = match dao::add_file(pg_client.clone(), new_file).await {
                     Ok(file_name) => {
                         let encrypted_file = encrypt_string_nononce(&mut key, file_name).expect("could not encrypt file name!");
                         AppMessage {
@@ -177,6 +177,15 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         AppMessage {
                             cmd: Cmd::Failure,
                             data: vec!["FNode could not be created!".to_string()],
+                        }
+                    },
+                };
+                match dao::add_file_to_parent(pg_client.clone(), path_str.clone(), new_file_name.clone()).await {
+                    Ok(_) => {},
+                    Err(_) => {
+                        resp = AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["FNode parent could not be updated!".to_string()],
                         }
                     },
                 };
@@ -244,6 +253,37 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     cmd: Cmd::Cat,
                     data: vec![plaintext_str],
                 }).await;
+            },
+            Cmd::Mkdir => {
+                let path: Path = serde_json::from_str(msg.data.get(0).unwrap()).unwrap();
+                let path_str = path_to_str(path.clone());
+                let new_dir_name = msg.data.get(1).unwrap();
+                let encrypted_file_name = encrypt_string_nononce(&mut key, new_dir_name.clone()).unwrap();
+                let new_dir_f_node = FNode {
+                    id: 0,
+                    name: new_dir_name.clone(),
+                    path: path_str.clone(),
+                    owner: (*curr_user).to_string(),
+                    hash: "".to_string(),
+                    parent: path_str,
+                    dir: true,
+                    u: 7,
+                    g: 0,
+                    o: 0,
+                    children: vec![],
+                };
+                let update = dao::add_file(pg_client.clone(), new_dir_f_node).await;
+                let resp = match update {
+                    Ok(_) => AppMessage {
+                            cmd: Cmd::Mkdir,
+                            data: vec![encrypted_file_name.clone()],
+                        },
+                    Err(_) => AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["could not mkdir!".to_string()],
+                        },
+                };
+                send_app_message(&mut ws_stream, &mut key, resp).await;
             },
             _ => todo!()
         }
