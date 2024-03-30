@@ -78,7 +78,7 @@ pub async fn create_user(client: Arc<Mutex<Client>>, user_name: String, pass: St
         Err(_) => return Err(format!("couldn't hash user pass while creating user!")),
     };
     let key = key_gen().expect("could not serialize symmetric key!");
-    let e = client.lock().await.execute("INSERT INTO users values (user_name, group, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
+    let e = client.lock().await.execute("INSERT INTO users values (user_name, group_id, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
     &[&user_name, &group, &salt, &key, &is_admin]).await;
     match e {
         Ok(_) => Ok(user_name),
@@ -98,7 +98,7 @@ pub async fn create_group(client: Arc<Mutex<Client>>, group_name: String) -> Res
 pub async fn add_user_to_group(client: Arc<Mutex<Client>>, user_name: String, group_name: String) -> Result<String, String>{
     let e = client.lock().await.execute("UPDATE groups SET users = ARRAY_APPEND(users, $1) WHERE name=$2",
     &[&user_name, &group_name]).await;
-    let e1 = client.lock().await.execute("UPDATE users SET group=$1 WHERE user_name=$2",
+    let e1 = client.lock().await.execute("UPDATE users SET group_id=$1 WHERE user_name=$2",
     &[&group_name, &user_name]).await;
     match (e, e1) {
         (Ok(_), Ok(_)) => Ok(group_name),
@@ -147,7 +147,7 @@ pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<O
         Ok(Some(row)) => Ok(Some(User{
             id: row.get("id"),
             user_name: row.get("user_name"),
-            group: row.get("group"),
+            group_id: row.get("group_id"),
             key: row.get("key"),
             salt: row.get("salt"),
             is_admin: row.get("is_admin"),
