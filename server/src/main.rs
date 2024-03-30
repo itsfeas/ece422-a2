@@ -9,8 +9,7 @@ use tokio_tungstenite::{tungstenite::{http::response, Message}, WebSocketStream}
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use rand_core::OsRng;
 use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit},
-    Aes256Gcm, Nonce, Key
+    aead::{consts::U12, Aead, AeadCore, KeyInit}, Aes256Gcm, Key, Nonce
 };
 use std::str::from_utf8;
 
@@ -298,7 +297,8 @@ fn handle_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg_serial
 
 fn unencrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str: &String) -> Result<String, ()> {
     let cipher = Aes256Gcm::new(&(*key).unwrap());
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let msg_tup: (String, [u8;12]) = serde_json::from_str(&encrypted_str).unwrap();
+    let nonce: aes_gcm::Nonce<U12> = msg_tup.1.into();
     match cipher.decrypt(&nonce, encrypted_str.as_ref()) {
         Ok(plaintext) => Ok(from_utf8(&plaintext.to_owned()).unwrap().to_string()),
         Err(_) => Err(()),
