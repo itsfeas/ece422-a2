@@ -345,12 +345,13 @@ fn mkdir<S>(msg: AppMessage,
     if recv_msg.cmd == Cmd::Mkdir {
         // let enc_filename = get_encrypted_filenames(vec![target_path.clone()], socket, encryption_key).unwrap()[0].clone(); 
         let enc_filename = recv_msg.data[0].clone(); 
-        let enc_path = convert_path_to_enc(current_path, socket, encryption_key); 
+        let mut enc_path = convert_path_to_enc(current_path, socket, encryption_key); 
         if enc_path.path.len() == 0 { // cd to root and home level
             println!("{}", "Cannot mkdir on this level.") 
         } else {
             // for cd, do nothing
             //
+            enc_path.path.push((true, enc_filename)); 
             create_dir(enc_path.path.iter().map(|x| {
                     if !x.0 {
                         panic!("Path must be encrypted"); 
