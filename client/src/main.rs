@@ -76,7 +76,7 @@ fn main() -> Result<(), Error> {
         if let LoginStatus::New(s) = login_state.clone() {
             println!("signup successful");
             let mut path = Path {
-                path: vec![(false, "/".into()), (false, "home".into()), (false, s.0.clone())]
+                path: vec![(false, "/".into()), (false, "home".into())]
             };
 
             app_message = AppMessage {cmd: Cmd::Mkdir, data: vec![path.to_string(), s.0.clone()]};
@@ -113,33 +113,29 @@ fn main() -> Result<(), Error> {
 
                 app_message = command_parser(cmd_input).unwrap(); 
                 
-                println!("DEBUG: {:?}", app_message); 
-
-
-
-
-                if app_message.cmd == Cmd::NewConnection {
-                    // setup_connection
-                } else if app_message.cmd == Cmd::Echo { 
-                    // AppMessage: echo <current path> <echo message> [">" <path to file to echo to>] 
-
-                } else if app_message.cmd == Cmd::Cd { 
-                    preprocess_app_message(&mut app_message, &path);
-                    cd(app_message, &mut socket, &mut aes_key, &mut path);
-                    // AppMessage: cd <current path> <path to cd to>, since the server searches
-                    // from root 
-                } else if app_message.cmd == Cmd::Touch {
-                    // AppMessage: touch <current path> <new file>, since the server searches
-                    // from root 
-                } else if app_message.cmd == Cmd::Mkdir {
-                    preprocess_app_message(&mut app_message, &path);
-                    mkdir(app_message, &mut socket, &mut aes_key,  &path);
-                }
-
-
-
+                println!("DEBUG: {:?}", app_message);
+                match app_message.cmd {
+                    Cmd::Cd => {
+                        preprocess_app_message(&mut app_message, &path);
+                        cd(app_message, &mut socket, &mut aes_key, &mut path);
+                    }
+                    Cmd::NewConnection => {},
+                    Cmd::Echo => {},
+                    Cmd::Touch => {},
+                    Cmd::Mkdir => {
+                        preprocess_app_message(&mut app_message, &path);
+                        mkdir(app_message, &mut socket, &mut aes_key,  &path);
+                    },
+                    Cmd::Ls => {},
+                    Cmd::Pwd => {},
+                    Cmd::Mv => {},
+                    Cmd::Cat => {},
+                    Cmd::Chmod => {},
+                    Cmd::CreateGroup => {},
+                    
+                    _ => {},
+                };
             }
-
         }
         else {
 

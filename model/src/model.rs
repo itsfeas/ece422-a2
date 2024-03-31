@@ -50,6 +50,8 @@ pub enum Cmd {
     Failure,
     Pwd,
     Touch,
+    CreateGroup,
+    Chmod
 }
 
 #[derive(Serialize, Deserialize, Debug)]
