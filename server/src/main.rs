@@ -65,7 +65,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
         }
         let msg_serialized = m.to_string();
 
-        println!("SERIALIZED_MSG: {}", msg_serialized);
+        // println!("SERIALIZED_MSG: {}", msg_serialized);
         let msg: AppMessage = handle_msg(encrypted, &mut key, msg_serialized);
         match msg.cmd {
             Cmd::NewConnection => {
@@ -124,16 +124,24 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 authenticated = res_auth;
             },
             Cmd::Cd => {
-                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
                     Some(value) => value,
                     None => continue,
                 };
                 let target_path = msg.data.get(1).unwrap();
                 println!("parent children {:?}", f_node.children);
-                let resp = if f_node.children.contains(target_path) {
+                let child_query = dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+&msg.data[1].clone()).await
+                    .expect("could not perform get_f_node query!");
+                let parent_contains = f_node.children.contains(target_path);
+                let resp = if parent_contains && child_query.is_some() && child_query.unwrap().dir {
                     AppMessage {
                         cmd: Cmd::Cd,
                         data: vec![target_path.clone()],
+                    }
+                } else if parent_contains {
+                    AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["path is not a directory!".to_string()],
                     }
                 } else {
                     AppMessage {
@@ -144,7 +152,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 send_app_message(&mut ws_stream, &mut key, resp).await;
             },
             Cmd::Ls => {
-                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
                     Some(value) => value,
                     None => continue,
                 };
@@ -155,11 +163,14 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 send_app_message(&mut ws_stream, &mut key, msg).await;
             },
             Cmd::Touch => {
-                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
                     Some(value) => value,
                     None => continue,
                 };
                 let new_file_name = msg.data.get(1).unwrap();
+                if handle_if_child_exists(&pg_client, &path_str, new_file_name, &mut ws_stream, &mut key).await {
+                    continue;
+                }
                 let new_file = FNode {
                     id: -1,
                     name: new_file_name.clone(),
@@ -175,7 +186,8 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 };
                 let mut resp = match dao::add_file(pg_client.clone(), new_file).await {
                     Ok(file_name) => {
-                        let encrypted_file = encrypt_string_nononce(&mut key, file_name).expect("could not encrypt file name!");
+                        let mut user_key = Arc::new(get_user_key(&pg_client, &curr_user).await);
+                        let encrypted_file = encrypt_string_nononce(&mut user_key, file_name).expect("could not encrypt file name!");
                         AppMessage {
                             cmd: Cmd::Touch,
                             data: vec![encrypted_file],
@@ -236,13 +248,14 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 send_app_message(&mut ws_stream, &mut key, msg).await;
             },
             Cmd::Echo => {
-                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
                     Some(value) => value,
                     None => continue,
                 };
                 let file_data = msg.data.get(2).unwrap();
                 let additional_str = msg.data.get(3).unwrap();
-                let plaintext_str = unencrypt_string_nononce(&mut key, file_data).unwrap();
+                let mut user_key = Arc::new(get_user_key(&pg_client.clone(), &curr_user).await);
+                let plaintext_str = unencrypt_string_nononce(&mut user_key, file_data).unwrap();
                 let new_file_str = plaintext_str.to_owned()+additional_str;
                 let encrypted_file_data = encrypt_string_nononce(&mut key, new_file_str.clone()).unwrap();
                 let new_hash = hash_file(f_node.name.clone(), new_file_str.clone());
@@ -260,12 +273,32 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 send_app_message(&mut ws_stream, &mut key, resp).await;
             },
             Cmd::Cat => {
-                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
+                let (par_path, par_path_str, par_f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
                     Some(value) => value,
                     None => continue,
                 };
+                let (path, path_str, f_node) = match get_and_check_path(par_path_str+"/"+&msg.data[1].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                if f_node.dir {
+                    send_app_message(&mut ws_stream, &mut key, AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["cannot cat a directory!".to_string()],
+                    }).await;
+                    continue;
+                }
                 let file_data = msg.data.get(2).unwrap();
-                let plaintext_str = unencrypt_string_nononce(&mut key, file_data).unwrap();
+                println!("received encrypted file_data {}", file_data);
+                if file_data.is_empty() {
+                    send_app_message(&mut ws_stream, &mut key, AppMessage {
+                        cmd: Cmd::Cat,
+                        data: vec!["".to_string()],
+                    }).await;
+                    continue;
+                }
+                let mut user_key = Arc::new(get_user_key(&pg_client.clone(), &curr_user).await);
+                let plaintext_str = unencrypt_string_nononce(&mut user_key, file_data).unwrap();
                 send_app_message(&mut ws_stream, &mut key, AppMessage {
                     cmd: Cmd::Cat,
                     data: vec![plaintext_str],
@@ -274,7 +307,11 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
             Cmd::Mkdir => {
                 let path_str = msg.data.get(0).unwrap().to_string();
                 let new_dir_name = msg.data.get(1).unwrap();
-                let encrypted_file_name = encrypt_string_nononce(&mut key, new_dir_name.clone()).unwrap();
+                if handle_if_child_exists(&pg_client, &path_str, new_dir_name, &mut ws_stream, &mut key).await {
+                    continue;
+                }
+                let mut user_key = Arc::new(get_user_key(&pg_client, &curr_user).await);
+                let encrypted_file_name = encrypt_string_nononce(&mut user_key, new_dir_name.clone()).unwrap();
                 let new_dir_f_node = FNode {
                     id: 0,
                     name: new_dir_name.clone(),
@@ -315,8 +352,29 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
     }
 }
 
+async fn handle_if_child_exists(pg_client: &Arc<Mutex<Client>>, path_str: &String,
+    new_file_name: &String, ws_stream: &mut WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>) -> bool {
+    if {
+        let pg_client = pg_client.clone();
+        let path_str = path_str.clone()+"/"+&new_file_name.clone();
+        async move {
+            dao::get_f_node(pg_client.clone(), path_str).await
+                .expect("could not perform get_f_node query!")
+                .is_some()
+        }
+    }.await {
+        send_app_message(ws_stream, key, AppMessage {
+            cmd: Cmd::Failure,
+            data: vec!["file/directory with this name already exists!".to_string()],
+        }).await;
+        return true;
+    }
+    false
+}
+
 fn path_str_to_encrypted_path(path_str: String, user_key: Key<Aes256Gcm>) -> Vec<String> {
     let mut path_vec = path_str_to_vec(path_str.clone());
+    println!("path_vec {:?}", path_vec);
     let path_vec_not_home = path_vec.split_off(1);
     let mut path_vec_enc: Vec<String> = path_vec_not_home
         .iter()
@@ -326,8 +384,7 @@ fn path_str_to_encrypted_path(path_str: String, user_key: Key<Aes256Gcm>) -> Vec
     path_vec_enc
 }
 
-async fn get_and_check_path(msg: &AppMessage, pg_client: &Arc<Mutex<Client>>, ws_stream: &mut WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>) -> Option<(Path, String, FNode)> {
-    let path_str = msg.data.get(0).unwrap().to_string();
+async fn get_and_check_path(path_str: String, pg_client: &Arc<Mutex<Client>>, ws_stream: &mut WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>) -> Option<(Path, String, FNode)> {
     let path: Path = Path {
         path: path_str_to_vec(path_str.clone()).iter().map(|s| (false, s.to_string())).collect()
     };
@@ -355,14 +412,14 @@ async fn check_curr_path(res: Option<FNode>, ws_stream: &mut WebSocketStream<Tcp
             return None;
         },
     };
-    if !f_node.dir {
-        let msg = AppMessage {
-            cmd: Cmd::Failure,
-            data: vec!["Current path is not a directory!".to_string()],
-        };
-        send_app_message(ws_stream, key, msg).await;
-        return None;
-    }
+    // if !f_node.dir {
+    //     let msg = AppMessage {
+    //         cmd: Cmd::Failure,
+    //         data: vec!["Current path is not a directory!".to_string()],
+    //     };
+    //     send_app_message(ws_stream, key, msg).await;
+    //     return None;
+    // }
     Some(f_node)
 }
 
@@ -473,5 +530,16 @@ fn path_to_str(path: Path) -> String {
 }
 
 fn path_str_to_vec(path: String) -> Vec<String> {
-    path.split('/').map(|s| s.to_string()).collect()
+    let mut path_vec: Vec<String> = path.split('/').map(|s| s.to_string()).collect();
+    path_vec.remove(0);
+    path_vec
+}
+
+async fn get_user_key(pg_client: &Arc<Mutex<Client>>, curr_user: &Arc<String>) -> Option<Key<Aes256Gcm>> {
+    let user = dao::get_user(pg_client.clone(), (**curr_user).clone()).await.unwrap();
+    let key_str = user.unwrap().key;
+    match serde_json::from_str::<[u8; 32]>(&key_str) {
+        Ok(k) => Some(k.into()),
+        Err(_) => None,
+    }
 }

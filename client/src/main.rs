@@ -135,7 +135,10 @@ fn main() -> Result<(), Error> {
                     },
                     Cmd::Pwd => {},
                     Cmd::Mv => {},
-                    Cmd::Cat => {},
+                    Cmd::Cat => {
+                        preprocess_app_message(&mut app_message, &path);
+                        cat(&mut app_message, &mut socket, &mut aes_key,  &path);
+                    },
                     Cmd::Chmod => {},
                     Cmd::CreateGroup => {},
                     
@@ -421,18 +424,24 @@ fn touch<S>(app_message: AppMessage,
 }
 
 
-fn cat<S>(msg: AppMessage,
+fn cat<S>(msg: &mut AppMessage,
        socket: &mut WebSocket<S>, 
-       encryption_key: &mut Key<Aes256Gcm> ) -> Result<(), String> where S:std::io::Read, S:std::io::Write { 
+       encryption_key: &mut Key<Aes256Gcm>,
+       current_path: &Path
+    ) -> Result<(), String> where S:std::io::Read, S:std::io::Write { 
+    let target_file = msg.data[1].clone();
+    let path_enc = convert_path_to_enc(&target_file, current_path, socket, encryption_key);
+    let mut path_enc_string = path_enc.to_string();
+    path_enc_string.remove(0);
+    println!("path_enc_string, {}", path_enc_string);
+    let file_data = match std::fs::read_to_string(path_enc_string) {
+        Ok(d) => d,
+        Err(e) => "".to_string(), // bad error handling 
+    };
+    msg.data.append(&mut vec![file_data]);
     send_encrypt(&msg, socket, encryption_key).unwrap(); 
-    
-    loop {
-        let recv_app_message: AppMessage = recv_decrypt(socket, encryption_key).unwrap(); 
-        if recv_app_message.cmd == Cmd::Cat { 
-            print!("{}", recv_app_message.data.join("")); 
-            stdout().flush().unwrap();             
-        }
-    }
+    let unencrypted_data = recv_decrypt(socket, encryption_key).unwrap().data[0].clone();
+    println!("{}", unencrypted_data);
     Ok(())
 }
 
@@ -589,7 +598,7 @@ fn convert_path_to_enc<S>(filename: &String,
                           current_path: &Path, 
                           socket: &mut WebSocket<S>, 
                           key: &mut Key<Aes256Gcm>) -> Path where S: std::io::Read, S: std::io::Write { 
-    println!("path {:#?}", current_path.clone());
+    // println!("path {:#?}", current_path.clone());
     let mut enc_path_segments: Vec<String> = get_encrypted_filenames(filename, current_path, socket, key).unwrap();     
     if enc_path_segments.len() >= 2 {
         enc_path_segments.remove(0); 

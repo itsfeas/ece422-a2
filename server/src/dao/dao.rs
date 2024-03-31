@@ -182,13 +182,13 @@ pub async fn get_group(client: Arc<Mutex<Client>>, group_name: String) -> Result
     }
 }
 
-//////////////////////////////////
-///     FILESYSTEM MOVEMENT    ///
-//////////////////////////////////
+// //////////////////////////////////
+// ///     FILESYSTEM MOVEMENT    ///
+// //////////////////////////////////
 
 
-pub trait Traversal {
-    fn make_child(&self) -> Result<Self, String> where Self: Sized; 
-    fn get_child(&self) -> Result<Self, String> where Self: Sized; 
-    fn set_child(&mut self) -> Result<Self, String> where Self: Sized; 
-}
+// pub trait Traversal {
+//     fn make_child(&self) -> Result<Self, String> where Self: Sized; 
+//     fn get_child(&self) -> Result<Self, String> where Self: Sized; 
+//     fn set_child(&mut self) -> Result<Self, String> where Self: Sized; 
+// }
