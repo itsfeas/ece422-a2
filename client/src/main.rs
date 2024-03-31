@@ -130,7 +130,9 @@ fn main() -> Result<(), Error> {
                         preprocess_app_message(&mut app_message, &path);
                         mkdir(app_message, &mut socket, &mut aes_key,  &path);
                     },
-                    Cmd::Ls => {},
+                    Cmd::Ls => {
+                        ls(&mut socket, &mut aes_key, &path);
+                    },
                     Cmd::Pwd => {},
                     Cmd::Mv => {},
                     Cmd::Cat => {},
@@ -367,10 +369,14 @@ fn mkdir<S>(msg: AppMessage,
 
 
 
-fn ls<S>(app_message: AppMessage, 
-        socket: &mut WebSocket<S>, 
-        encryption_key: &mut Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write {
-
+fn ls<S>(socket: &mut WebSocket<S>, 
+        encryption_key: &mut Key<Aes256Gcm>,
+        current_path: &Path
+    ) -> Result<(), String> where S: std::io::Read, S: std::io::Write {
+    let app_message = AppMessage {
+        cmd: Cmd::Ls,
+        data: vec![current_path.to_string()]
+    };
     let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
 
     let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
