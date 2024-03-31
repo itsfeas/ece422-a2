@@ -17,7 +17,7 @@ use typenum::U12;
 
 #[derive(Debug, Clone)]
 enum LoginStatus {
-    New(),
+    New((String, bool)),
     Success((String, bool)), 
     Failure()
 }
@@ -46,9 +46,8 @@ fn main() -> Result<(), Error> {
     // Key transfer at the beginning of the session
     let diffie_key = key_exchange(&mut socket); 
     // convert to Aes256Gcm key 
-    let aes_key: Key<Aes256Gcm> = diffie_key.to_bytes().into();
+    let mut aes_key: Key<Aes256Gcm> = diffie_key.to_bytes().into();
     loop {
-
         let mut line = String::new();
         let std_io = io::stdin();
         println!("Welcome");
@@ -56,10 +55,10 @@ fn main() -> Result<(), Error> {
         println!("Or sign up as a new user: new_user <username> <password>");
         // obtain input from command line 
         get_input(&std_io, &mut line);
-        let cmd_input = String::from(line); // placeholder -- user can type username or "new"
+        let cmd_input = String::from(line.clone()); // placeholder -- user can type username or "new"
         println!("DEBUG: {:?}", cmd_input);
 
-        let app_message = command_parser(cmd_input.clone()).unwrap();  
+        let mut app_message = command_parser(cmd_input.clone()).unwrap();  
         println!("DEBUG: {:?}", app_message);
 
         let mut login_state;
@@ -74,8 +73,14 @@ fn main() -> Result<(), Error> {
         }
         
         
-        if let LoginStatus::New() = login_state.clone() {
+        if let LoginStatus::New(s) = login_state.clone() {
             println!("signup successful");
+            let mut path = Path {
+                path: vec![(false, "/".into()), (false, "home".into()), (false, s.0.clone())]
+            };
+
+            app_message = AppMessage {cmd: Cmd::Mkdir, data: vec![path.to_string(), s.0.clone()]};
+            mkdir(app_message, &mut socket, &mut aes_key,  &path);
             continue;
         };
         if let LoginStatus::Failure() = login_state.clone() {
@@ -94,14 +99,20 @@ fn main() -> Result<(), Error> {
             
 
             loop {
-                println!("Enter Command");
+                print!("{}>>",path);
+                stdout().flush();
+                // println!("Enter Command");
                 let mut line = String::new();
-                let std_io = io::stdin();
+                // let std_io = io::stdin();
                 get_input(&std_io, &mut line);
+                if (line.is_empty()) {
+                    continue;
+                }
                 // obtain input from command line 
                 let cmd_input = String::from(line); 
 
-                let app_message = command_parser(cmd_input).unwrap();  
+                app_message = command_parser(cmd_input).unwrap(); 
+                
                 println!("DEBUG: {:?}", app_message); 
 
 
@@ -113,11 +124,16 @@ fn main() -> Result<(), Error> {
                     // AppMessage: echo <current path> <echo message> [">" <path to file to echo to>] 
 
                 } else if app_message.cmd == Cmd::Cd { 
+                    preprocess_app_message(&mut app_message, &path);
+                    cd(app_message, &mut socket, &mut aes_key, &mut path);
                     // AppMessage: cd <current path> <path to cd to>, since the server searches
                     // from root 
                 } else if app_message.cmd == Cmd::Touch {
                     // AppMessage: touch <current path> <new file>, since the server searches
                     // from root 
+                } else if app_message.cmd == Cmd::Mkdir {
+                    preprocess_app_message(&mut app_message, &path);
+                    mkdir(app_message, &mut socket, &mut aes_key,  &path);
                 }
 
 
@@ -155,7 +171,7 @@ fn login_signup<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Ae
     // let server_public: Cmd = serde_json::from_str(&login_res.cmd).expect("Deserialize failed for server_public!");
     match login_res.cmd {
         Cmd::NewUser => {
-            return LoginStatus::Success((String:: from("signup successful"), false));
+            return LoginStatus::New((login_res.data[0].clone(), false));
         },
         Cmd::Login => {
             let is_admin: bool = match login_res.data[1].as_str() {
@@ -311,7 +327,7 @@ fn cd<S>(app_message: AppMessage,
             // for cd, do nothing 
         }
         
-        process_local_cd_path(target_dir, current_path).expect("Path construction error")
+        process_local_cd_path(target_dir, current_path).expect("Path construction error");
     } else {
         println!("Directory does not exist"); 
     }

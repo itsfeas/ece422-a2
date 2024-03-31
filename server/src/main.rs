@@ -278,9 +278,9 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                             cmd: Cmd::Mkdir,
                             data: vec![encrypted_file_name.clone()],
                         },
-                    Err(_) => AppMessage {
+                    Err(err) => AppMessage {
                             cmd: Cmd::Failure,
-                            data: vec!["could not mkdir!".to_string()],
+                            data: vec![err.to_string()],
                         },
                 };
                 send_app_message(&mut ws_stream, &mut key, resp).await;
@@ -350,7 +350,7 @@ fn encrypt_string_nononce(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> R
     let nonce: Nonce<U12> = [0,0,0,0,0,0,0,0,0,0,0,0].into();
     let encrypt = cipher.encrypt(&nonce, s.as_ref());
     match encrypt {
-        Ok(e) => Ok((from_utf8(&e).unwrap().to_string())),
+        Ok(e) => Ok((serde_json::to_string(&e)).unwrap().to_string()),
         Err(_) => Err(()),
     }
 }

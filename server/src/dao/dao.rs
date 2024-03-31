@@ -16,7 +16,7 @@ pub async fn add_file(client: Arc<Mutex<Client>>, file: FNode) -> Result<String,
     &[&file.name, &file.path, &file.owner, &file.hash, &file.parent, &file.dir, &file.u, &file.g, &file.o, &file.children]).await;
     match e {
         Ok(_) => Ok(file.name),
-        Err(_) => Err(format!("couldn't create file!")),
+        Err(err) => Err(format!("{}",err)),
     }
 }
 
