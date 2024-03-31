@@ -343,7 +343,8 @@ fn mkdir<S>(msg: AppMessage,
     send_encrypt(&msg, socket, encryption_key).unwrap(); 
     let recv_msg = recv_decrypt(socket, encryption_key).unwrap(); 
     if recv_msg.cmd == Cmd::Mkdir {
-        let enc_filename = get_encrypted_filenames(vec![target_path.clone()], socket, encryption_key).unwrap()[0].clone(); 
+        // let enc_filename = get_encrypted_filenames(vec![target_path.clone()], socket, encryption_key).unwrap()[0].clone(); 
+        let enc_filename = recv_msg.data[0].clone(); 
         let enc_path = convert_path_to_enc(current_path, socket, encryption_key); 
         if enc_path.path.len() == 0 { // cd to root and home level
             println!("{}", "Cannot mkdir on this level.") 
@@ -456,7 +457,7 @@ fn echo<S>(app_message: AppMessage,
         println!("{}", &app_message.data[1]);
         return Ok(()); 
     }
-    let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
+    send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
 
     let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
     if recv_app_message.cmd == Cmd::Touch {
