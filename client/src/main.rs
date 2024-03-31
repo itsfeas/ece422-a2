@@ -17,7 +17,7 @@ use typenum::U12;
 
 #[derive(Debug, Clone)]
 enum LoginStatus {
-    New(),
+    New((String, bool)),
     Success((String, bool)), 
     Failure()
 }
@@ -73,8 +73,14 @@ fn main() -> Result<(), Error> {
         }
         
         
-        if let LoginStatus::New() = login_state.clone() {
+        if let LoginStatus::New(s) = login_state.clone() {
             println!("signup successful");
+            let mut path = Path {
+                path: vec![(false, "/".into()), (false, "home".into()), (false, s.0.clone())]
+            };
+
+            app_message = AppMessage {cmd: Cmd::Mkdir, data: vec![path.to_string(), s.0.clone()]};
+            mkdir(app_message, &mut socket, &mut aes_key,  &path);
             continue;
         };
         if let LoginStatus::Failure() = login_state.clone() {
@@ -165,7 +171,7 @@ fn login_signup<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Ae
     // let server_public: Cmd = serde_json::from_str(&login_res.cmd).expect("Deserialize failed for server_public!");
     match login_res.cmd {
         Cmd::NewUser => {
-            return LoginStatus::Success((String:: from("signup successful"), false));
+            return LoginStatus::New((login_res.data[0].clone(), false));
         },
         Cmd::Login => {
             let is_admin: bool = match login_res.data[1].as_str() {
