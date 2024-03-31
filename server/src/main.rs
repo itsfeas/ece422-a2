@@ -357,7 +357,7 @@ fn encrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> Result<(S
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let encrypt = cipher.encrypt(&nonce, s.as_ref());
     match encrypt {
-        Ok(e) => Ok((serde_json::to_string(&e).unwrap(), nonce.into())),
+        Ok(e) => Ok((hex::encode(&e), nonce.into())),
         Err(_) => Err(()),
     }
 }
@@ -367,7 +367,7 @@ fn encrypt_string_nononce(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> R
     let nonce: Nonce<U12> = [0,0,0,0,0,0,0,0,0,0,0,0].into();
     let encrypt = cipher.encrypt(&nonce, s.as_ref());
     match encrypt {
-        Ok(e) => Ok(String::from_utf8(e).unwrap()),
+        Ok(e) => Ok(hex::encode(e)),
         Err(_) => Err(()),
     }
 }
@@ -386,7 +386,7 @@ fn handle_msg(encrypted: bool, key: &mut Arc<Option<Key<Aes256Gcm>>>, msg_serial
 fn unencrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str: &String) -> Result<String, ()> {
     let cipher = Aes256Gcm::new(&(*key).unwrap());
     let msg_tup: (String, [u8;12]) = serde_json::from_str(&encrypted_str).unwrap();
-    let encrypted_u8: Vec<u8> = serde_json::from_str(&msg_tup.0).unwrap();
+    let encrypted_u8: Vec<u8> = hex::decode(&msg_tup.0).unwrap();
     let nonce: aes_gcm::Nonce<U12> = msg_tup.1.into();
     match cipher.decrypt(&nonce, encrypted_u8.as_ref()) {
         Ok(plaintext) => Ok(from_utf8(&plaintext.to_owned()).unwrap().to_string()),
@@ -396,9 +396,9 @@ fn unencrypt_string(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str: &Strin
 
 fn unencrypt_string_nononce(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str: &String) -> Result<String, ()> {
     let cipher = Aes256Gcm::new(&(*key).unwrap());
-    let msg_tup: String = serde_json::from_str(&encrypted_str).unwrap();
+    let encrypted_u8: Vec<u8> = hex::decode(&encrypted_str).unwrap();
     let nonce: Nonce<U12> = [0,0,0,0,0,0,0,0,0,0,0,0].into();
-    match cipher.decrypt(&nonce, encrypted_str.as_ref()) {
+    match cipher.decrypt(&nonce, encrypted_u8.as_ref()) {
         Ok(plaintext) => Ok(from_utf8(&plaintext.to_owned()).unwrap().to_string()),
         Err(_) => Err(()),
     }

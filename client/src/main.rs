@@ -202,12 +202,12 @@ fn encrypt_msg(key: &mut Option<Key<Aes256Gcm>>, msg: &AppMessage) -> (String, N
     let cipher = Aes256Gcm::new(&(key).unwrap());
     let nonce: Nonce<typenum::U12> = Aes256Gcm::generate_nonce(&mut OsRng);
     let ciphertext = cipher.encrypt(&nonce, msq_serial.as_ref()).unwrap();
-    return (serde_json::to_string(&ciphertext).unwrap().to_string(), nonce); 
+    return (hex::encode(&ciphertext), nonce); 
 }
 
 fn decrypt_msg(key: &mut Option<Key<Aes256Gcm>>, nonce: Nonce<typenum::U12>, string_msg: String) -> AppMessage {
     let cipher = Aes256Gcm::new(&(key).unwrap());
-    let from_str: Vec<u8> = serde_json::from_str(&string_msg).unwrap();
+    let from_str: Vec<u8> = hex::decode(&string_msg).unwrap();
     let ciphertext = cipher.decrypt(&nonce, from_str.as_ref()).unwrap();
     println!("msg_recv {}", String::from_utf8(ciphertext.clone()).unwrap().as_str());
     let rec_app_message:AppMessage = serde_json::from_str(
