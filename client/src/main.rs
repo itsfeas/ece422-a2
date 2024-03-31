@@ -1,3 +1,4 @@
+use std::fs::create_dir_all;
 use std::io; 
 use std::{io::Error, str::from_utf8, fs::File, fs::create_dir,  io::stdout, ops::Neg, io::Read, io::Write}; 
 use log::Log;
@@ -346,12 +347,14 @@ fn mkdir<S>(msg: AppMessage,
         } else {
             // for cd, do nothing
             //
-            create_dir(enc_path.path.iter().map(|x| {
+            let path = enc_path.path.iter().map(|x| {
                     if !x.0 {
                         panic!("Path must be encrypted"); 
                     }
                     x.1.clone()
-                }).collect::<Vec<String>>().join("/")).unwrap(); 
+                }).collect::<Vec<String>>().join("/");
+            println!("attempt to create local dir path {}", path.clone());
+            create_dir_all(path).unwrap(); 
             
         }
     }
@@ -577,6 +580,7 @@ fn convert_path_to_enc<S>(filename: &String,
                           current_path: &Path, 
                           socket: &mut WebSocket<S>, 
                           key: &mut Key<Aes256Gcm>) -> Path where S: std::io::Read, S: std::io::Write { 
+    println!("path {:#?}", current_path.clone());
     let mut enc_path_segments: Vec<String> = get_encrypted_filenames(filename, current_path, socket, key).unwrap();     
     if enc_path_segments.len() >= 2 {
         enc_path_segments.remove(0); 
