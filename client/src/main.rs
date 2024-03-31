@@ -122,7 +122,10 @@ fn main() -> Result<(), Error> {
                     }
                     Cmd::NewConnection => {},
                     Cmd::Echo => {},
-                    Cmd::Touch => {},
+                    Cmd::Touch => {
+                        preprocess_app_message(&mut app_message, &path);
+                        touch(app_message, &mut socket, &mut aes_key,  &path);
+                    },
                     Cmd::Mkdir => {
                         preprocess_app_message(&mut app_message, &path);
                         mkdir(app_message, &mut socket, &mut aes_key,  &path);
