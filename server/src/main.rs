@@ -23,7 +23,7 @@ mod dao;
 async fn main() -> Result<(), Error> {
     let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
     let (client, connection) =
-        tokio_postgres::connect(&format!("host=localhost dbname=db user=USER password={}", db_pass), NoTls).await
+        tokio_postgres::connect(&format!("host=localhost dbname=db user=USER password={} port=5431", db_pass), NoTls).await
         .unwrap();
     let pg_client = Arc::new(Mutex::new(client));
     tokio::spawn(async move {
@@ -256,8 +256,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 }).await;
             },
             Cmd::Mkdir => {
-                let path: Path = serde_json::from_str(msg.data.get(0).unwrap()).unwrap();
-                let path_str = path_to_str(path.clone());
+                let path_str = msg.data.get(0).unwrap().to_string();
                 let new_dir_name = msg.data.get(1).unwrap();
                 let encrypted_file_name = encrypt_string_nononce(&mut key, new_dir_name.clone()).unwrap();
                 let new_dir_f_node = FNode {

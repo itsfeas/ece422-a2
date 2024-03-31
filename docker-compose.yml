@@ -9,11 +9,11 @@ services:
     networks:
       - bkd-net
     ports:
-      - 5432:5432
+      - 5431:5432
     environment:
-      POSTGRES_USER: USER
-      POSTGRES_PASSWORD: ${DB_PASS}
-      POSTGRES_DB: db
+      - POSTGRES_USER=USER
+      - POSTGRES_PASSWORD=${DB_PASS}
+      - POSTGRES_DB=db
     volumes:
       - db-data:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
