@@ -125,7 +125,7 @@ pub async fn remove_user_from_group(client: Arc<Mutex<Client>>, user_name: Strin
 }
 
 pub async fn add_file_to_parent(client: Arc<Mutex<Client>>, parent_path: String, new_f_node_name: String) -> Result<(), String>{
-    let e = client.lock().await.execute("UPDATE groups SET fnode = ARRAY_APPEND(fnode, $1) WHERE path=$2",
+    let e = client.lock().await.execute("UPDATE fnode SET children = ARRAY_APPEND(children, $1) WHERE path=$2",
     &[&new_f_node_name, &parent_path]).await;
     match e {
         Ok(_) => Ok(()),

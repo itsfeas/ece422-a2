@@ -262,7 +262,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     path: path_str.clone(),
                     owner: (*curr_user).to_string(),
                     hash: "".to_string(),
-                    parent: path_str,
+                    parent: path_str.clone(),
                     dir: true,
                     u: 7,
                     g: 0,
@@ -270,7 +270,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     children: vec![],
                 };
                 let update = dao::add_file(pg_client.clone(), new_dir_f_node).await;
-                let resp = match update {
+                let mut resp = match update {
                     Ok(_) => AppMessage {
                             cmd: Cmd::Mkdir,
                             data: vec![encrypted_file_name.clone()],
@@ -279,6 +279,15 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                             cmd: Cmd::Failure,
                             data: vec![err.to_string()],
                         },
+                };
+                match dao::add_file_to_parent(pg_client.clone(), path_str.clone(), new_dir_name.clone()).await {
+                    Ok(_) => {},
+                    Err(_) => {
+                        resp = AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["FNode parent could not be updated!".to_string()],
+                        }
+                    },
                 };
                 send_app_message(&mut ws_stream, &mut key, resp).await;
             },

@@ -27,4 +27,4 @@ CREATE TABLE users (
     is_admin BOOLEAN
 );
 
-INSERT INTO fnode (name, path, owner, hash, parent, dir, u, g, o, children) VALUES ('home', '/', NULL, '', '/', true, 7, 7, 7, ARRAY[]::BIGINT[]);
+INSERT INTO fnode (name, path, owner, hash, parent, dir, u, g, o, children) VALUES ('home', '/home', NULL, '', '/', true, 7, 7, 7, ARRAY[]::BIGINT[]);
