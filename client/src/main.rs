@@ -485,7 +485,7 @@ fn get_encrypted_filenames<S>(filename: &String,
 
     let msg = AppMessage {
         cmd:Cmd::GetEncryptedFile, 
-        data: vec![cur_path, filename.clone()] 
+        data: vec![cur_path, (*filename).clone()] 
     };
     send_encrypt(&msg, socket, key).expect("Send get encrypted filenames failed"); 
     let recv_msg= recv_decrypt(socket, key).expect("Recv get encrypted filenames failed"); 
