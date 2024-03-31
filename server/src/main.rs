@@ -195,7 +195,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
             Cmd::GetEncryptedFile => {
                 let path_str = msg.data[0].to_string();
                 let unencrypted_filename = msg.data[1].clone();
-                let f_node = dao::get_f_node(pg_client.clone(), path_str+&unencrypted_filename).await.unwrap();
+                let f_node = dao::get_f_node(pg_client.clone(), path_str+"/"+&unencrypted_filename).await.unwrap();
                 let user = dao::get_user(pg_client.clone(), (*curr_user).clone()).await.unwrap();
                 let msg = match (f_node, user) {
                     (Some(f), Some(u)) => {
