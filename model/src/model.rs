@@ -9,9 +9,9 @@ pub struct FNode {
     pub hash: String,
     pub parent: String,
     pub dir: bool,
-    pub u: i64,
-    pub g: i64,
-    pub o: i64,
+    pub u: i16,
+    pub g: i16,
+    pub o: i16,
     
     //if directory
     pub children: Vec<String>,
