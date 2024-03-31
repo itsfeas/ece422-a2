@@ -269,7 +269,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let new_dir_f_node = FNode {
                     id: 0,
                     name: new_dir_name.clone(),
-                    path: path_str.clone(),
+                    path: path_str.clone()+"/"+&new_dir_name.clone(),
                     owner: (*curr_user).to_string(),
                     hash: "".to_string(),
                     parent: path_str.clone(),
