@@ -370,16 +370,27 @@ fn ls<S>(app_message: AppMessage,
 
 fn touch<S>(app_message: AppMessage, 
         socket: &mut WebSocket<S>, 
-        encryption_key: &mut Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write {
+        encryption_key: &mut Key<Aes256Gcm>, 
+        current_path: &Path) -> Result<(), String> where S: std::io::Read, S: std::io::Write {
+    let target_dir = &app_message.data[1].clone(); 
+    send_encrypt(&app_message, socket, encryption_key).unwrap(); 
 
-    let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
-
-    let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
+    let recv_app_message = recv_decrypt(socket, encryption_key).unwrap(); 
     if recv_app_message.cmd == Cmd::Touch {
 
         let enc_fname = recv_app_message.data[0].clone(); 
-        let full_rel_path = extend_directory(&enc_fname);  
-        File::create(full_rel_path); 
+        let mut path_enc = get_encrypted_filenames(current_path.path.iter().map(|x| {
+            if x.0 {
+                panic!("Path must be non-encrypted")
+            }
+            x.1.clone()
+        }).collect::<Vec<String>>(), socket, encryption_key).unwrap(); 
+        if path_enc.len() > 0 {
+            path_enc.push(enc_fname); 
+            File::create(path_enc.join("/")).unwrap(); 
+        } else  { // else if current path is in root or home 
+            println!("cannot make file here"); 
+        }
 
         return Ok(());
     } else if recv_app_message.cmd == Cmd::Failure {
