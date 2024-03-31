@@ -319,8 +319,7 @@ fn cd<S>(app_message: AppMessage,
 
     let rec_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
     if rec_app_message.cmd == Cmd::Cd {
-        let enc_filename = get_encrypted_filenames(vec![target_dir.clone()], socket, encryption_key).unwrap()[0].clone(); 
-        let enc_path = convert_path_to_enc(current_path, socket, encryption_key); 
+        let enc_path = convert_path_to_enc(&target_dir, current_path, socket, encryption_key); 
         if enc_path.path.len() == 0 { // cd to root and home level
             
         } else {
@@ -345,7 +344,7 @@ fn mkdir<S>(msg: AppMessage,
     if recv_msg.cmd == Cmd::Mkdir {
         // let enc_filename = get_encrypted_filenames(vec![target_path.clone()], socket, encryption_key).unwrap()[0].clone(); 
         let enc_filename = recv_msg.data[0].clone(); 
-        let mut enc_path = convert_path_to_enc(current_path, socket, encryption_key); 
+        let mut enc_path = convert_path_to_enc(&enc_filename, current_path, socket, encryption_key); 
         if enc_path.path.len() == 0 { // cd to root and home level
             println!("{}", "Cannot mkdir on this level.") 
         } else {
@@ -395,17 +394,14 @@ fn touch<S>(app_message: AppMessage,
 
     let recv_app_message = recv_decrypt(socket, encryption_key).unwrap(); 
     if recv_app_message.cmd == Cmd::Touch {
-
-        let enc_fname = recv_app_message.data[0].clone(); 
-        let mut path_enc = get_encrypted_filenames(current_path.path.iter().map(|x| {
-            if x.0 {
-                panic!("Path must be non-encrypted")
-            }
-            x.1.clone()
-        }).collect::<Vec<String>>(), socket, encryption_key).unwrap(); 
-        if path_enc.len() > 0 {
-            path_enc.push(enc_fname); 
-            File::create(path_enc.join("/")).unwrap(); 
+        let path_enc = convert_path_to_enc(&target_dir, current_path, socket, encryption_key); 
+        if path_enc.path.len() > 0 {
+            File::create(path_enc.path.iter().map(|x| {
+                if !x.0 {
+                    panic!("Path needs to be encrypted"); 
+                }
+                x.1.clone()
+            }).collect::<Vec<String>>().join("/")).unwrap(); 
         } else  { // else if current path is in root or home 
             println!("cannot make file here"); 
         }
@@ -475,12 +471,21 @@ fn echo<S>(app_message: AppMessage,
  * Returns
  *      vector of encrypted filenames 
  * */
-fn get_encrypted_filenames<S>(filenames: Vec<String>, 
+fn get_encrypted_filenames<S>(filename: &String, 
+                              current_path: &Path, 
                               socket: &mut WebSocket<S>, 
                               key: &mut Key<Aes256Gcm>) -> Result<Vec<String>, String> where S: std::io::Read, S: std::io::Write {
+    let mut cur_path = current_path.path.iter().map(|x| {
+        if x.0 {
+            panic!("Path names are not supposed to be encrypted"); 
+        }
+        x.1.clone()
+    }).filter(|x| x != "/").collect::<Vec<String>>().join("/"); 
+    cur_path.insert_str(0, "/"); 
+
     let msg = AppMessage {
         cmd:Cmd::GetEncryptedFile, 
-        data: filenames
+        data: vec![cur_path, filename.clone()] 
     };
     send_encrypt(&msg, socket, key).expect("Send get encrypted filenames failed"); 
     let recv_msg= recv_decrypt(socket, key).expect("Recv get encrypted filenames failed"); 
@@ -569,32 +574,23 @@ fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Resu
 
 }
 
-/*
+/*  ONLY FOR CLIENT SIDE USE
  *  
  * */
-fn convert_path_to_enc<S>(path: &Path, 
+fn convert_path_to_enc<S>(filename: &String, 
+                          current_path: &Path, 
                           socket: &mut WebSocket<S>, 
                           key: &mut Key<Aes256Gcm>) -> Path where S: std::io::Read, S: std::io::Write { 
-    let mut path_local_strings: Vec<String> = path.path.iter().map(|x| {
-        if x.0 {
-            panic!("Path is unencrypted!")
-        }
-        x.1.clone()
-    }).collect::<Vec<String>>(); 
-
-
-    if path_local_strings.len() > 2 {
-        path_local_strings.remove(0); 
-        path_local_strings.remove(0); 
-    } else { 
+    let mut enc_path_segments: Vec<String> = get_encrypted_filenames(filename, current_path, socket, key).unwrap();     
+    if enc_path_segments.len() >= 2 {
+        enc_path_segments.remove(0); 
+        enc_path_segments.remove(0);
+        enc_path_segments.insert(0, "../FILESYSTEM".into()); 
         return Path {
-            path: vec![]
-        };  
+            path: enc_path_segments.iter().map(|x| (true, x.into())).collect()
+        }
     }
-
-    let mut enc_path_segments: Vec<String> = get_encrypted_filenames(path_local_strings, socket, key).unwrap();     
-    enc_path_segments.insert(0, "../FILESYSTEM".into()); 
     return Path {
-        path: enc_path_segments.iter().map(|x| (true, x.into())).collect()
+        path: vec![]
     }
 }
