@@ -193,11 +193,8 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 send_app_message(&mut ws_stream, &mut key, resp).await;
             },
             Cmd::GetEncryptedFile => {
-                let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
-                    Some(value) => value,
-                    None => continue,
-                };
-                let unencrypted_filename = msg.data.get(0).unwrap();
+                let path_str = msg.data.get(0).unwrap().to_string();
+                let unencrypted_filename = msg.data.get(1).unwrap();
                 let f_node = dao::get_f_node(pg_client.clone(), path_str+unencrypted_filename).await.unwrap();
                 let user = dao::get_user(pg_client.clone(), (*curr_user).clone()).await.unwrap();
                 let msg = match (f_node, user) {
@@ -295,7 +292,8 @@ async fn get_and_check_path(msg: &AppMessage, pg_client: &Arc<Mutex<Client>>, ws
     let path: Path = Path {
         path: path_str_to_vec(path_str.clone()).iter().map(|s| (false, s.to_string())).collect()
     };
-    let res = dao::get_f_node(pg_client.clone(), path_str.clone()+msg.data.get(1).unwrap()).await
+    println!("pulling f_node with path {}", path_str.clone()+"/"+msg.data.get(1).unwrap());
+    let res = dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+msg.data.get(1).unwrap()).await
         .expect("could not perform get_f_node query!");
     let f_node = match check_curr_path(res, ws_stream, key).await {
         Some(value) => value,
