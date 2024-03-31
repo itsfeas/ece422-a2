@@ -80,6 +80,8 @@ fn main() -> Result<(), Error> {
             };
 
             app_message = AppMessage {cmd: Cmd::Mkdir, data: vec![path.to_string(), s.0.clone()]};
+            println!("app msg{:?}", app_message);
+            println!("path {:?}", path);
             mkdir(app_message, &mut socket, &mut aes_key,  &path);
             continue;
         };

@@ -367,7 +367,7 @@ fn encrypt_string_nononce(key: &mut Arc<Option<Key<Aes256Gcm>>>, s: String) -> R
     let nonce: Nonce<U12> = [0,0,0,0,0,0,0,0,0,0,0,0].into();
     let encrypt = cipher.encrypt(&nonce, s.as_ref());
     match encrypt {
-        Ok(e) => Ok(String::from_utf8(e).unwrap()),
+        Ok(e) => Ok((serde_json::to_string(&e)).unwrap().to_string()),
         Err(_) => Err(()),
     }
 }
