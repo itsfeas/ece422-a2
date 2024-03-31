@@ -319,8 +319,11 @@ fn cd<S>(app_message: AppMessage,
          current_path: &mut Path) -> Result<(), String>  where S: std::io::Read, S: std::io::Write { 
 
     let target_dir: String = app_message.data[1].clone(); 
+    if target_dir.eq("..") {
+        current_path.path.pop(); 
+        return Ok(());
+    }
     let nonce = send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
-
 
     let rec_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
     if rec_app_message.cmd == Cmd::Cd {
