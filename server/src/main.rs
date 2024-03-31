@@ -194,6 +194,8 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
             },
             Cmd::GetEncryptedFile => {
                 let path_str = msg.data[0].to_string();
+                let mut path_vec = path_str_to_vec(path_str.clone());
+                let path_vec_not_home = path_vec.split_off(1);
                 let unencrypted_filename = msg.data[1].clone();
                 let f_node = dao::get_f_node(pg_client.clone(), path_str+"/"+&unencrypted_filename).await.unwrap();
                 let user = dao::get_user(pg_client.clone(), (*curr_user).clone()).await.unwrap();
@@ -201,12 +203,20 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     (Some(f), Some(u)) => {
                         let u8_32_arr: [u8; 32] = serde_json::from_str(&u.key).unwrap();
                         let user_key: Key<Aes256Gcm> = u8_32_arr.into();
+                        let mut path_vec_enc: Vec<String> = path_vec_not_home
+                            .iter()
+                            .map(|s| encrypt_string_nononce(&mut Arc::new(Some(user_key)), s.to_string()))
+                            .map(|res| res.unwrap())
+                            .collect();
                         // let k: aes_gcm::Key<Aes256Gcm> = u.key.as_bytes();
                         // let u8_arr: aes_gcm::Key<Aes256Gcm> = u.key.as_bytes().to_vec().into();
                         let filename_enc = encrypt_string_nononce(&mut Arc::new(Some(user_key)), f.name);
+                        path_vec_enc.append(&mut vec![filename_enc.unwrap()]);
+                        let mut full_path_vec = vec!["/".to_string(), "home".to_string()];
+                        full_path_vec.append(&mut path_vec_enc);
                         AppMessage {
                             cmd: Cmd::GetEncryptedFile,
-                            data: vec![filename_enc.unwrap()],
+                            data: full_path_vec,
                         }
                     },
                     (_, _) => AppMessage {
