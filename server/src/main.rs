@@ -129,14 +129,19 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     None => continue,
                 };
                 let target_path = msg.data.get(1).unwrap();
-                if f_node.children.contains(target_path) {
-                    let msg = AppMessage {
+                println!("parent children {:?}", f_node.children);
+                let resp = if f_node.children.contains(target_path) {
+                    AppMessage {
                         cmd: Cmd::Cd,
                         data: vec![target_path.clone()],
-                    };
-                    send_app_message(&mut ws_stream, &mut key, msg).await;
-                    continue;
-                }
+                    }
+                } else {
+                    AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["target_path could not be found in parent path".to_string()],
+                    }
+                };
+                send_app_message(&mut ws_stream, &mut key, resp).await;
             },
             Cmd::Ls => {
                 let (path, path_str, f_node) = match get_and_check_path(&msg, &pg_client, &mut ws_stream, &mut key).await {
@@ -326,8 +331,8 @@ async fn get_and_check_path(msg: &AppMessage, pg_client: &Arc<Mutex<Client>>, ws
     let path: Path = Path {
         path: path_str_to_vec(path_str.clone()).iter().map(|s| (false, s.to_string())).collect()
     };
-    println!("pulling f_node with path {}", path_str.clone()+"/"+msg.data.get(1).unwrap());
-    let res = dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+msg.data.get(1).unwrap()).await
+    println!("pulling f_node with path {}", path_str.clone());
+    let res = dao::get_f_node(pg_client.clone(), path_str.clone()).await
         .expect("could not perform get_f_node query!");
     let f_node = match check_curr_path(res, ws_stream, key).await {
         Some(value) => value,
@@ -350,7 +355,7 @@ async fn check_curr_path(res: Option<FNode>, ws_stream: &mut WebSocketStream<Tcp
             return None;
         },
     };
-    if f_node.dir {
+    if !f_node.dir {
         let msg = AppMessage {
             cmd: Cmd::Failure,
             data: vec!["Current path is not a directory!".to_string()],
