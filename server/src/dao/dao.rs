@@ -133,8 +133,17 @@ pub async fn add_file_to_parent(client: Arc<Mutex<Client>>, parent_path: String,
     }
 }
 
-pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Option<FNode>, String> {
-    let e = client.lock().await.query_opt("SELECT * FROM fnode WHERE path = $1", &[&path]).await;
+pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String, user_name: String) -> Result<Option<FNode>, String> {
+    let e = client.lock().await
+        .query_opt("SELECT f
+            FROM fnode f, users u, groups g
+            WHERE f.path = $1
+            AND (
+                (f.o >= 4)
+                OR (f.u>=4 AND f.owner = $2 AND u.user_name=$2)
+                OR (f.g>=4 AND u.user_name=$2 AND u.user_name=ANY(g.users))
+            )",
+            &[&path, &user_name]).await;
     match e {
         Ok(Some(row)) => {
             let fnode = FNode {

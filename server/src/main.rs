@@ -124,13 +124,15 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 authenticated = res_auth;
             },
             Cmd::Cd => {
-                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                let (path, path_str, f_node) =
+                    match get_and_check_path(msg.data[0].clone(), &pg_client,
+                    &mut ws_stream, &mut key, (*curr_user).clone()).await {
                     Some(value) => value,
                     None => continue,
                 };
                 let target_path = msg.data.get(1).unwrap();
                 println!("parent children {:?}", f_node.children);
-                let child_query = dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+&msg.data[1].clone()).await
+                let child_query = dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+&msg.data[1].clone(), (*curr_user).clone()).await
                     .expect("could not perform get_f_node query!");
                 let parent_contains = f_node.children.contains(target_path);
                 let resp = if parent_contains && child_query.is_some() && child_query.unwrap().dir {
@@ -152,7 +154,9 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 send_app_message(&mut ws_stream, &mut key, resp).await;
             },
             Cmd::Ls => {
-                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                let (path, path_str, f_node) =
+                    match get_and_check_path(msg.data[0].clone(), &pg_client,
+                    &mut ws_stream, &mut key, (*curr_user).clone()).await {
                     Some(value) => value,
                     None => continue,
                 };
@@ -163,12 +167,14 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 send_app_message(&mut ws_stream, &mut key, msg).await;
             },
             Cmd::Touch => {
-                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                let (path, path_str, f_node) =
+                    match get_and_check_path(msg.data[0].clone(), &pg_client,
+                    &mut ws_stream, &mut key, (*curr_user).clone()).await {
                     Some(value) => value,
                     None => continue,
                 };
                 let new_file_name = msg.data.get(1).unwrap();
-                if handle_if_child_exists(&pg_client, &path_str, new_file_name, &mut ws_stream, &mut key).await {
+                if handle_if_child_exists(&pg_client, &path_str, new_file_name, &mut ws_stream, &mut key, (*curr_user).clone()).await {
                     continue;
                 }
                 let new_file = FNode {
@@ -214,7 +220,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
             Cmd::GetEncryptedFile => {
                 let path_str = msg.data[0].to_string();
                 let unencrypted_filename = msg.data[1].clone();
-                let f_node = dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+&unencrypted_filename).await.unwrap();
+                let f_node = dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+&unencrypted_filename, (*curr_user).clone()).await.unwrap();
                 let user = dao::get_user(pg_client.clone(), (*curr_user).clone()).await.unwrap();
                 let msg = match (f_node, user) {
                     (Some(f), Some(u)) => {
@@ -248,7 +254,9 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 send_app_message(&mut ws_stream, &mut key, msg).await;
             },
             Cmd::Echo => {
-                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone()+"/"+&msg.data[1].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                let (path, path_str, f_node) =
+                    match get_and_check_path(msg.data[0].clone()+"/"+&msg.data[1].clone(),
+                    &pg_client, &mut ws_stream, &mut key, (*curr_user).clone()).await {
                     Some(value) => value,
                     None => continue,
                 };
@@ -273,11 +281,15 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 send_app_message(&mut ws_stream, &mut key, resp).await;
             },
             Cmd::Cat => {
-                let (par_path, par_path_str, par_f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                let (par_path, par_path_str, par_f_node) =
+                    match get_and_check_path(msg.data[0].clone(),
+                    &pg_client, &mut ws_stream, &mut key, (*curr_user).clone()).await {
                     Some(value) => value,
                     None => continue,
                 };
-                let (path, path_str, f_node) = match get_and_check_path(par_path_str+"/"+&msg.data[1].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                let (path, path_str, f_node) =
+                    match get_and_check_path(par_path_str+"/"+&msg.data[1].clone(),
+                    &pg_client, &mut ws_stream, &mut key, (*curr_user).clone()).await {
                     Some(value) => value,
                     None => continue,
                 };
@@ -307,7 +319,8 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
             Cmd::Mkdir => {
                 let path_str = msg.data.get(0).unwrap().to_string();
                 let new_dir_name = msg.data.get(1).unwrap();
-                if handle_if_child_exists(&pg_client, &path_str, new_dir_name, &mut ws_stream, &mut key).await {
+                if handle_if_child_exists(&pg_client, &path_str, new_dir_name,
+                    &mut ws_stream, &mut key, (*curr_user).clone()).await {
                     continue;
                 }
                 let mut user_key = Arc::new(get_user_key(&pg_client, &curr_user).await);
@@ -353,12 +366,13 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
 }
 
 async fn handle_if_child_exists(pg_client: &Arc<Mutex<Client>>, path_str: &String,
-    new_file_name: &String, ws_stream: &mut WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>) -> bool {
+    new_file_name: &String, ws_stream: &mut WebSocketStream<TcpStream>,
+    key: &mut Arc<Option<Key<Aes256Gcm>>>, curr_user: String) -> bool {
     if {
         let pg_client = pg_client.clone();
         let path_str = path_str.clone()+"/"+&new_file_name.clone();
         async move {
-            dao::get_f_node(pg_client.clone(), path_str).await
+            dao::get_f_node(pg_client.clone(), path_str, curr_user).await
                 .expect("could not perform get_f_node query!")
                 .is_some()
         }
@@ -384,12 +398,13 @@ fn path_str_to_encrypted_path(path_str: String, user_key: Key<Aes256Gcm>) -> Vec
     path_vec_enc
 }
 
-async fn get_and_check_path(path_str: String, pg_client: &Arc<Mutex<Client>>, ws_stream: &mut WebSocketStream<TcpStream>, key: &mut Arc<Option<Key<Aes256Gcm>>>) -> Option<(Path, String, FNode)> {
+async fn get_and_check_path(path_str: String, pg_client: &Arc<Mutex<Client>>, ws_stream: &mut WebSocketStream<TcpStream>,
+    key: &mut Arc<Option<Key<Aes256Gcm>>>, curr_user: String) -> Option<(Path, String, FNode)> {
     let path: Path = Path {
         path: path_str_to_vec(path_str.clone()).iter().map(|s| (false, s.to_string())).collect()
     };
     println!("pulling f_node with path {}", path_str.clone());
-    let res = dao::get_f_node(pg_client.clone(), path_str.clone()).await
+    let res = dao::get_f_node(pg_client.clone(), path_str.clone(), curr_user).await
         .expect("could not perform get_f_node query!");
     let f_node = match check_curr_path(res, ws_stream, key).await {
         Some(value) => value,
