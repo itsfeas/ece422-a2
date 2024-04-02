@@ -149,6 +149,7 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
                 g: row.get(8),
                 o: row.get(9),
                 children: row.get(10),
+                encrypted_name: row.get(11),
             };
             Ok(Some(fnode))
         }

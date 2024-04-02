@@ -15,6 +15,7 @@ pub struct FNode {
     
     //if directory
     pub children: Vec<String>,
+    pub encrypted_name: String,
 }
 
 #[derive()]

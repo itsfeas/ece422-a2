@@ -132,6 +132,14 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 println!("parent children {:?}", f_node.children);
                 let child_query = dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+&msg.data[1].clone()).await
                     .expect("could not perform get_f_node query!");
+                let has_read_perms = have_read_perms_for_file(&pg_client,
+                    target_path.clone()+"/"+&msg.data[1].clone(), &curr_user).await;
+                if !has_read_perms {
+                    send_app_message(&mut ws_stream, &mut key, AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["do not have read permissions!".to_string()],
+                    }).await;
+                }
                 let parent_contains = f_node.children.contains(target_path);
                 let resp = if parent_contains && child_query.is_some() && child_query.unwrap().dir {
                     AppMessage {
@@ -160,6 +168,28 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     cmd: Cmd::Ls,
                     data: f_node.children,
                 };
+                let has_read_perms = have_read_perms_for_file(&pg_client,
+                    path_str.clone()+"/"+&msg.data[1].clone(), &curr_user).await;
+                if !has_read_perms {
+                    send_app_message(&mut ws_stream, &mut key, AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["do not have read permissions!".to_string()],
+                    }).await;
+                    continue;
+                }
+                // f_node.children.iter()
+                //     .map(|c| {dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+c).await.unwrap()})
+                //     .filter(|c| c.is_some())
+                //     .map(|c| c.unwrap())
+                //     .map(|c| (dao::get_user(pg_client.clone(), c.owner).await.unwrap().unwrap(), c))
+                //     .map(|(u, c)| {
+                //         if has_read_perms {
+                //             c.name
+                //         } else {
+                //             encrypt_string_nononce(u.key, &c.name);
+                //         }
+                //     })
+                    // .collect();
                 send_app_message(&mut ws_stream, &mut key, msg).await;
             },
             Cmd::Touch => {
@@ -171,6 +201,8 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 if handle_if_child_exists(&pg_client, &path_str, new_file_name, &mut ws_stream, &mut key).await {
                     continue;
                 }
+                let mut user_key = Arc::new(get_user_key(&pg_client, &curr_user).await);
+                let encrypted_file = encrypt_string_nononce(&mut user_key, new_file_name.clone()).expect("could not encrypt file name!");
                 let new_file = FNode {
                     id: -1,
                     name: new_file_name.clone(),
@@ -183,11 +215,10 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     g: 0,
                     o: 0,
                     children: vec![],
+                    encrypted_name: encrypted_file.clone()
                 };
                 let mut resp = match dao::add_file(pg_client.clone(), new_file).await {
                     Ok(file_name) => {
-                        let mut user_key = Arc::new(get_user_key(&pg_client, &curr_user).await);
-                        let encrypted_file = encrypt_string_nononce(&mut user_key, file_name).expect("could not encrypt file name!");
                         AppMessage {
                             cmd: Cmd::Touch,
                             data: vec![encrypted_file],
@@ -266,7 +297,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                             data: vec!["can't write to a directory!".to_string()],
                     }).await;
                     continue;
-                }
+                };
                 let additional_str = msg.data.get(2).unwrap();
                 let file_data = msg.data.get(3).unwrap();
                 let mut user_key = Arc::new(get_user_key(&pg_client.clone(), &curr_user).await);
@@ -350,6 +381,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     g: 0,
                     o: 0,
                     children: vec![],
+                    encrypted_name: encrypted_file_name.clone()
                 };
                 let update = dao::add_file(pg_client.clone(), new_dir_f_node).await;
                 let mut resp = match update {

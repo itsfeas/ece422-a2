@@ -9,7 +9,8 @@ CREATE TABLE if not exists fnode  (
     u SMALLINT,
     g SMALLINT,
     o SMALLINT,
-    children VARCHAR[]
+    children VARCHAR[],
+    encrypted_name: VARCHAR
 );
 
 CREATE TABLE groups (
