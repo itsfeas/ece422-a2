@@ -16,7 +16,7 @@ pub async fn add_file(client: Arc<Mutex<Client>>, file: FNode) -> Result<String,
     &[&file.name, &file.path, &file.owner, &file.hash, &file.parent, &file.dir, &file.u, &file.g, &file.o, &file.children]).await;
     match e {
         Ok(_) => Ok(file.name),
-        Err(_) => Err(format!("couldn't create file!")),
+        Err(err) => Err(format!("{}",err)),
     }
 }
 
@@ -124,6 +124,15 @@ pub async fn remove_user_from_group(client: Arc<Mutex<Client>>, user_name: Strin
     }
 }
 
+pub async fn add_file_to_parent(client: Arc<Mutex<Client>>, parent_path: String, new_f_node_name: String) -> Result<(), String>{
+    let e = client.lock().await.execute("UPDATE fnode SET children = ARRAY_APPEND(children, $1) WHERE path=$2",
+    &[&new_f_node_name, &parent_path]).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to add user to group!".to_string()),
+    }
+}
+
 pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Option<FNode>, String> {
     let e = client.lock().await.query_opt("SELECT * FROM fnode WHERE path = $1", &[&path]).await;
     match e {
@@ -173,13 +182,13 @@ pub async fn get_group(client: Arc<Mutex<Client>>, group_name: String) -> Result
     }
 }
 
-//////////////////////////////////
-///     FILESYSTEM MOVEMENT    ///
-//////////////////////////////////
+// //////////////////////////////////
+// ///     FILESYSTEM MOVEMENT    ///
+// //////////////////////////////////
 
 
-pub trait Traversal {
-    fn make_child(&self) -> Result<Self, String> where Self: Sized; 
-    fn get_child(&self) -> Result<Self, String> where Self: Sized; 
-    fn set_child(&mut self) -> Result<Self, String> where Self: Sized; 
-}
+// pub trait Traversal {
+//     fn make_child(&self) -> Result<Self, String> where Self: Sized; 
+//     fn get_child(&self) -> Result<Self, String> where Self: Sized; 
+//     fn set_child(&mut self) -> Result<Self, String> where Self: Sized; 
+// }

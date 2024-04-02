@@ -9,9 +9,9 @@ pub struct FNode {
     pub hash: String,
     pub parent: String,
     pub dir: bool,
-    pub u: i8,
-    pub g: i8,
-    pub o: i8,
+    pub u: i16,
+    pub g: i16,
+    pub o: i16,
     
     //if directory
     pub children: Vec<String>,
@@ -46,10 +46,12 @@ pub enum Cmd {
     GetEncryptedFile,
     Mv,
     NewConnection,
+    NewGroup,
     NewUser,
     Failure,
     Pwd,
     Touch,
+    Chmod
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -62,4 +64,16 @@ pub struct AppMessage {
 #[derive(Serialize, Deserialize, Debug, Clone)] 
 pub struct Path {
     pub path: Vec<(bool, String)>
+}
+
+impl std::fmt::Display for Path {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let mut path_string = self.path.iter().map(|x| {
+                    x.1.clone()
+                }).filter(|x| x != "/").collect::<Vec<String>>().join("/");
+
+        path_string.insert_str(0, "/"); 
+        write!(f, "{}", path_string); 
+        Ok(())
+    }
 }

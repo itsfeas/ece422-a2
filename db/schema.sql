@@ -2,14 +2,14 @@ CREATE TABLE if not exists fnode  (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR,
     path VARCHAR,
-    owner BIGINT,
+    owner VARCHAR,
     hash VARCHAR,
-    parent BIGINT,
+    parent VARCHAR,
     dir BOOLEAN,
     u SMALLINT,
     g SMALLINT,
     o SMALLINT,
-    children BIGINT[]
+    children VARCHAR[]
 );
 
 CREATE TABLE groups (
@@ -26,3 +26,5 @@ CREATE TABLE users (
     salt VARCHAR,
     is_admin BOOLEAN
 );
+
+INSERT INTO fnode (name, path, owner, hash, parent, dir, u, g, o, children) VALUES ('home', '/home', NULL, '', '/', true, 7, 7, 7, ARRAY[]::BIGINT[]);
