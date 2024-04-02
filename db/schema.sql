@@ -14,14 +14,14 @@ CREATE TABLE if not exists fnode  (
 
 CREATE TABLE groups (
     id BIGSERIAL PRIMARY KEY,
-    users BIGINT[],
-    name VARCHAR
+    users VARCHAR[],
+    g_name VARCHAR UNIQUE
 );
 
 CREATE TABLE users (
     id BIGSERIAL PRIMARY KEY,
     user_name VARCHAR,
-    group_id BIGINT REFERENCES groups(id),
+    group_name VARCHAR REFERENCES groups(g_name),
     key VARCHAR,
     salt VARCHAR,
     is_admin BOOLEAN
