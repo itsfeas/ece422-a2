@@ -140,7 +140,7 @@ fn main() -> Result<(), Error> {
                         cat(&mut app_message, &mut socket, &mut aes_key,  &path);
                     },
                     Cmd::Chmod => {},
-                    Cmd::CreateGroup => {},
+                    Cmd::NewGroup => {},
                     
                     _ => {},
                 };
