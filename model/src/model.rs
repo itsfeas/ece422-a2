@@ -46,11 +46,11 @@ pub enum Cmd {
     GetEncryptedFile,
     Mv,
     NewConnection,
+    NewGroup,
     NewUser,
     Failure,
     Pwd,
     Touch,
-    CreateGroup,
     Chmod
 }
 
