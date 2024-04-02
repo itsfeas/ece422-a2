@@ -261,7 +261,10 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let additional_str = msg.data.get(2).unwrap();
                 let file_data = msg.data.get(3).unwrap();
                 let mut user_key = Arc::new(get_user_key(&pg_client.clone(), &curr_user).await);
-                let plaintext_str = unencrypt_string_nononce(&mut user_key, file_data).unwrap();
+                let mut plaintext_str = "".to_string();
+                if !file_data.is_empty() {
+                    plaintext_str += &unencrypt_string_nononce(&mut user_key, file_data).unwrap();
+                }
                 let new_file_str = plaintext_str.to_owned()+additional_str;
                 let encrypted_file_data = encrypt_string_nononce(&mut user_key, new_file_str.clone()).unwrap();
                 let new_hash = hash_file(f_node.name.clone(), new_file_str.clone());
