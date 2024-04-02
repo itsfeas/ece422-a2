@@ -481,7 +481,17 @@ fn echo<S>(app_message: AppMessage,
     println!("app_message.data {:?}", app_message.data.clone());
     let target_file = app_message.data[3].clone();
     let to_be_written = app_message.data[1].clone();
-    let path_enc = convert_path_to_enc(&target_file, current_path, socket, encryption_key);
+    let path_enc = match convert_path_to_enc_res(&target_file, current_path, socket, encryption_key) {
+        Ok(e) => e,
+        Err(_) => {
+            touch(AppMessage {
+                cmd: Cmd::Touch,
+                data: vec![current_path.to_string(), target_file.clone()]
+            }, socket, encryption_key, current_path);
+            echo(app_message, socket, encryption_key, current_path);
+            return Ok(());
+        },
+    };
     let mut path_enc_string = path_enc.to_string();
     path_enc_string.remove(0);
     println!("path_enc_string, {}", path_enc_string);
@@ -491,7 +501,7 @@ fn echo<S>(app_message: AppMessage,
     };
     send_encrypt(&AppMessage {
         cmd: Cmd::Echo,
-        data: vec![current_path.to_string(), target_file, to_be_written, file_data]
+        data: vec![current_path.to_string(), target_file.clone(), to_be_written, file_data]
     }, socket, encryption_key).expect("Send Encrypt failed");
     let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
     if recv_app_message.cmd == Cmd::Echo {
@@ -644,8 +654,8 @@ fn convert_path_to_enc<S>(filename: &String,
     let mut enc_path_segments: Vec<String> = get_encrypted_filenames(&msg.data[1].clone(), &mod_current_path, socket, key).unwrap();     
     if enc_path_segments.len() >= 2 {
         enc_path_segments.remove(0); 
-        enc_path_segments.remove(0);
-        enc_path_segments.insert(0, "../FILESYSTEM/home".into()); 
+        // enc_path_segments.remove(0);
+        enc_path_segments.insert(0, "../FILESYSTEM/".into()); 
         return Path {
             path: enc_path_segments.iter().map(|x| (true, x.into())).collect()
         }
@@ -653,4 +663,26 @@ fn convert_path_to_enc<S>(filename: &String,
     return Path {
         path: vec![]
     }
+}
+
+fn convert_path_to_enc_res<S>(filename: &String, 
+                          current_path: &Path, 
+                          socket: &mut WebSocket<S>, 
+                          key: &mut Key<Aes256Gcm>) -> Result<Path, ()> where S: std::io::Read, S: std::io::Write { 
+    // println!("path {:#?}", current_path.clone());
+    let mut enc_path_segments: Vec<String> = match get_encrypted_filenames(filename, current_path, socket, key) {
+        Ok(e) => e,
+        Err(_) => {
+            return Err(());
+        },
+    };
+    if enc_path_segments.len() >= 2 {
+        enc_path_segments.remove(0); 
+        // enc_path_segments.remove(0);
+        enc_path_segments.insert(0, "../FILESYSTEM/".into()); 
+        return Ok(Path {
+            path: enc_path_segments.iter().map(|x| (true, x.into())).collect()
+        })
+    }
+    Err(())
 }

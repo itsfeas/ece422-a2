@@ -233,7 +233,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         }
                     },
                     (Some(_), _) => AppMessage {
-                            cmd: Cmd::Failure,
+                            cmd: Cmd::Touch,
                             data: vec!["could not get encrypted filename (but f_node exists)!".to_string()],
                         },
                     (_, Some(_)) => AppMessage {
