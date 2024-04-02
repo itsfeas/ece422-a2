@@ -252,8 +252,14 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     Some(value) => value,
                     None => continue,
                 };
-                let file_data = msg.data.get(2).unwrap();
-                let additional_str = msg.data.get(3).unwrap();
+                if f_node.dir {
+                    send_app_message(&mut ws_stream, &mut key, AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["can't write to a directory!".to_string()],
+                    }).await
+                }
+                let additional_str = msg.data.get(2).unwrap();
+                let file_data = msg.data.get(3).unwrap();
                 let mut user_key = Arc::new(get_user_key(&pg_client.clone(), &curr_user).await);
                 let plaintext_str = unencrypt_string_nononce(&mut user_key, file_data).unwrap();
                 let new_file_str = plaintext_str.to_owned()+additional_str;
