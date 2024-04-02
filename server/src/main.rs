@@ -214,6 +214,14 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
             Cmd::GetEncryptedFile => {
                 let path_str = msg.data[0].to_string();
                 let unencrypted_filename = msg.data[1].clone();
+                let have_read_access = have_read_perms_for_file(&pg_client, path_str.clone()+"/"+&unencrypted_filename, &curr_user).await;
+                if !have_read_access {
+                    send_app_message(&mut ws_stream, &mut key, AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["don't have read access!".to_string()],
+                    }).await;
+                    continue;
+                }
                 let f_node = dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+&unencrypted_filename).await.unwrap();
                 let user = dao::get_user(pg_client.clone(), (*curr_user).clone()).await.unwrap();
                 let msg = match (f_node, user) {
@@ -256,7 +264,8 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     send_app_message(&mut ws_stream, &mut key, AppMessage {
                             cmd: Cmd::Failure,
                             data: vec!["can't write to a directory!".to_string()],
-                    }).await
+                    }).await;
+                    continue;
                 }
                 let additional_str = msg.data.get(2).unwrap();
                 let file_data = msg.data.get(3).unwrap();
@@ -283,9 +292,17 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     Some(value) => value,
                     None => continue,
                 };
-                let (path, path_str, f_node) = match get_and_check_path(par_path_str+"/"+&msg.data[1].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                let (path, path_str, f_node) = match get_and_check_path(par_path_str.clone()+"/"+&msg.data[1].clone(), &pg_client, &mut ws_stream, &mut key).await {
                     Some(value) => value,
                     None => continue,
+                };
+                let have_read_access = have_read_perms_for_file(&pg_client, par_path_str+"/"+&msg.data[1].clone(), &curr_user).await;
+                if !have_read_access {
+                    send_app_message(&mut ws_stream, &mut key, AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["don't have read access!".to_string()],
+                    }).await;
+                    continue;
                 };
                 if f_node.dir {
                     send_app_message(&mut ws_stream, &mut key, AppMessage {
@@ -578,7 +595,7 @@ async fn get_key_for_file(pg_client: &Arc<Mutex<Client>>, path_str: String, curr
 }
 
 async fn have_write_perms_for_file(pg_client: &Arc<Mutex<Client>>,
-        path_str: String, curr_user_name: &Arc<String>) -> Result<(), ()> {
+        path_str: String, curr_user_name: &Arc<String>) -> bool {
     let f_node = dao::get_f_node(pg_client.clone(), path_str).await.unwrap().unwrap();
     let curr_user = dao::get_user(pg_client.clone(), (**curr_user_name).clone()).await.unwrap().unwrap();
     let owner_user_name = f_node.owner;
@@ -586,18 +603,18 @@ async fn have_write_perms_for_file(pg_client: &Arc<Mutex<Client>>,
     if (f_node.o & 0b010)>0 {
         // get f_node owner key
     } else if (f_node.u & 0b010)>0 && owner_user_name.eq(&(**curr_user_name).clone()) {
-        return Ok(());
+        return true;
     } else if curr_user.group_name.is_none() || owner_user.group_name.is_none() {
-        return Err(());
+        return false;
     } else if (f_node.g & 0b010)>0 && curr_user.group_name.unwrap().eq(&owner_user.group_name.clone().unwrap()) {
-        return Ok(());
+        return true;
     }
-    Err(())
+    false
 }
 
-async fn have_read_perms_for_file(pg_client: &Arc<Mutex<Client>>, path_str: String, curr_user_name: &Arc<String>) -> Result<(), ()> {
+async fn have_read_perms_for_file(pg_client: &Arc<Mutex<Client>>, path_str: String, curr_user_name: &Arc<String>) -> bool {
     match get_key_for_file(pg_client, path_str, curr_user_name).await {
-        Some(_) => Ok(()),
-        None => Err(())
+        Some(_) => true,
+        None => false
     }
 }
