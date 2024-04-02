@@ -5,7 +5,7 @@ use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::{net::{TcpListener, TcpStream}, sync::Mutex};
 use log::info;
 use tokio_postgres::{Client, Config, NoTls};
-use model::model::{AppMessage, Cmd, Path, FNode};
+use model::model::{AppMessage, Cmd, FNode, Path, User};
 use tokio_tungstenite::{tungstenite::{http::response, Message}, WebSocketStream};
 use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
 use rand_core::OsRng;
@@ -541,5 +541,57 @@ async fn get_user_key(pg_client: &Arc<Mutex<Client>>, curr_user: &Arc<String>) -
     match serde_json::from_str::<[u8; 32]>(&key_str) {
         Ok(k) => Some(k.into()),
         Err(_) => None,
+    }
+}
+
+fn get_user_key_from_user(user: &User) -> Option<Key<Aes256Gcm>> {
+    let key_str = user.key.clone();
+    match serde_json::from_str::<[u8; 32]>(&key_str) {
+        Ok(k) => Some(k.into()),
+        Err(_) => None,
+    }
+}
+
+
+async fn get_key_for_file(pg_client: &Arc<Mutex<Client>>, path_str: String, curr_user_name: &Arc<String>) -> Option<Key<Aes256Gcm>> {
+    let f_node = dao::get_f_node(pg_client.clone(), path_str).await.unwrap().unwrap();
+    let curr_user = dao::get_user(pg_client.clone(), (**curr_user_name).clone()).await.unwrap().unwrap();
+    let owner_user_name = f_node.owner;
+    let owner_user = dao::get_user(pg_client.clone(), owner_user_name.clone()).await.unwrap().unwrap();
+    if (f_node.o & 0b100)>0 {
+        // get f_node owner key
+        return get_user_key_from_user(&owner_user);
+    } else if (f_node.u & 0b100)>0 && owner_user_name.eq(&(**curr_user_name).clone()) {
+        return get_user_key_from_user(&curr_user);
+    } else if curr_user.group_name.is_none() || owner_user.group_name.is_none() {
+        return None;
+    } else if (f_node.g & 0b100)>0 && curr_user.group_name.unwrap().eq(&owner_user.group_name.clone().unwrap()) {
+        return get_user_key_from_user(&owner_user);
+    }
+    None
+}
+
+async fn have_write_perms_for_file(pg_client: &Arc<Mutex<Client>>,
+        path_str: String, curr_user_name: &Arc<String>) -> Result<(), ()> {
+    let f_node = dao::get_f_node(pg_client.clone(), path_str).await.unwrap().unwrap();
+    let curr_user = dao::get_user(pg_client.clone(), (**curr_user_name).clone()).await.unwrap().unwrap();
+    let owner_user_name = f_node.owner;
+    let owner_user = dao::get_user(pg_client.clone(), owner_user_name.clone()).await.unwrap().unwrap();
+    if (f_node.o & 0b010)>0 {
+        // get f_node owner key
+    } else if (f_node.u & 0b010)>0 && owner_user_name.eq(&(**curr_user_name).clone()) {
+        return Ok(());
+    } else if curr_user.group_name.is_none() || owner_user.group_name.is_none() {
+        return Err(());
+    } else if (f_node.g & 0b010)>0 && curr_user.group_name.unwrap().eq(&owner_user.group_name.clone().unwrap()) {
+        return Ok(());
+    }
+    Err(())
+}
+
+async fn have_read_perms_for_file(pg_client: &Arc<Mutex<Client>>, path_str: String, curr_user_name: &Arc<String>) -> Result<(), ()> {
+    match get_key_for_file(pg_client, path_str, curr_user_name).await {
+        Some(_) => Ok(()),
+        None => Err(())
     }
 }

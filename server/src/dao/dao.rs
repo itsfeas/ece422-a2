@@ -82,7 +82,7 @@ pub async fn create_user(client: Arc<Mutex<Client>>, user_name: String, pass: St
     };
     let key = key_gen().expect("could not serialize symmetric key!");
     let e = match group {
-        Some(_) => client.lock().await.execute("INSERT INTO users (user_name, group_id, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
+        Some(_) => client.lock().await.execute("INSERT INTO users (user_name, group_name, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
     &[&user_name, &group, &salt, &key, &is_admin]).await,
         None => client.lock().await.execute("INSERT INTO users (user_name, salt, key, is_admin) VALUES ($1, $2, $3, $4)",
     &[&user_name, &salt, &key, &is_admin]).await,
@@ -94,8 +94,8 @@ pub async fn create_user(client: Arc<Mutex<Client>>, user_name: String, pass: St
 }
 
 pub async fn create_group(client: Arc<Mutex<Client>>, group_name: String) -> Result<String, String>{
-    let e = client.lock().await.execute("INSERT INTO groups (name, users) VALUES ($1, $2)",
-    &[&group_name, &Vec::<i64>::new()]).await;
+    let e = client.lock().await.execute("INSERT INTO groups (g_name, users) VALUES ($1, $2)",
+    &[&group_name, &Vec::<String>::new()]).await;
     match e {
         Ok(_) => Ok(group_name),
         Err(_) => Err(format!("couldn't create group!")),
@@ -103,9 +103,9 @@ pub async fn create_group(client: Arc<Mutex<Client>>, group_name: String) -> Res
 }
 
 pub async fn add_user_to_group(client: Arc<Mutex<Client>>, user_name: String, group_name: String) -> Result<String, String>{
-    let e = client.lock().await.execute("UPDATE groups SET users = ARRAY_APPEND(users, $1) WHERE name=$2",
+    let e = client.lock().await.execute("UPDATE groups SET users = ARRAY_APPEND(users, $1) WHERE g_name=$2",
     &[&user_name, &group_name]).await;
-    let e1 = client.lock().await.execute("UPDATE users SET group_id=$1 WHERE user_name=$2",
+    let e1 = client.lock().await.execute("UPDATE users SET group_name=$1 WHERE user_name=$2",
     &[&group_name, &user_name]).await;
     match (e, e1) {
         (Ok(_), Ok(_)) => Ok(group_name),
@@ -114,7 +114,7 @@ pub async fn add_user_to_group(client: Arc<Mutex<Client>>, user_name: String, gr
 }
 
 pub async fn remove_user_from_group(client: Arc<Mutex<Client>>, user_name: String, group_name: String) -> Result<String, String>{
-    let e = client.lock().await.execute("UPDATE groups SET users = array_remove(users, $1) WHERE name=$2",
+    let e = client.lock().await.execute("UPDATE groups SET users = array_remove(users, $1) WHERE g_name=$2",
     &[&user_name, &group_name]).await;
     let e1 = client.lock().await.execute("UPDATE users SET group='' WHERE user_name=$2",
     &[&group_name, &user_name]).await;
@@ -163,7 +163,7 @@ pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<O
         Ok(Some(row)) => Ok(Some(User{
             id: row.get("id"),
             user_name: row.get("user_name"),
-            group_id: row.try_get("group_id").unwrap_or(None),
+            group_name: row.try_get("group_name").unwrap_or(None),
             key: row.get("key"),
             salt: row.get("salt"),
             is_admin: row.get("is_admin"),
@@ -174,7 +174,7 @@ pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<O
 }
 
 pub async fn get_group(client: Arc<Mutex<Client>>, group_name: String) -> Result<Option<String>, String> {
-    let e = client.lock().await.query_opt("SELECT name FROM groups WHERE name = $1", &[&group_name]).await;
+    let e = client.lock().await.query_opt("SELECT name FROM groups WHERE g_name = $1", &[&group_name]).await;
     match e {
         Ok(Some(_)) => Ok(Some(group_name)),
         Ok(None) => Ok(None),
