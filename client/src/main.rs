@@ -598,6 +598,10 @@ fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Resu
     let mut current_path_str: String;  
     let mut filename = app_msg.data[0].clone(); 
 
+    if app_msg.cmd == Cmd::Echo && app_msg.data.len() > 1 {
+        filename = app_msg.data[app_msg.data.len()-1].clone(); 
+    }
+
     // if root path specified, replace current path string with filename
     if filename.starts_with("/") {
         let mut current_path_vec = filename.split("/").map(|x| String::from(x)).collect::<Vec<String>>(); 
@@ -621,8 +625,15 @@ fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Resu
         current_path_str.remove(0); 
     }
     
-    app_msg.data[0] = filename; 
-    app_msg.data.insert(0, current_path_str); 
+    if app_msg.cmd == Cmd::Echo && app_msg.data.len() > 1 {
+        let data = app_msg.data[0].clone(); 
+        app_msg.data = vec![current_path_str, data, ">".into(), filename]; 
+    } else {
+
+        app_msg.data[0] = filename; 
+        app_msg.data.insert(0, current_path_str); 
+
+    }
     
     Ok(Path {
         path: {
