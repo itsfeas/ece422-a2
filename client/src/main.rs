@@ -490,12 +490,18 @@ fn echo<S>(app_message: AppMessage,
     };
     send_encrypt(&AppMessage {
         cmd: Cmd::Echo,
-        data: vec![current_path.to_string(), target_file, to_be_written, file_data]
+        data: vec![current_path.to_string(), target_file.clone(), to_be_written, file_data]
     }, socket, encryption_key).expect("Send Encrypt failed");
     let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
     if recv_app_message.cmd == Cmd::Echo {
         std::fs::write(path_enc_string.clone(), recv_app_message.data[0].clone()).unwrap();
         return Ok(());
+    } if recv_app_message.cmd == Cmd::Touch {
+        touch(AppMessage {
+            cmd: Cmd::Touch,
+            data: vec![current_path.to_string(), target_file.clone()]
+        }, socket, encryption_key, current_path);
+        echo(app_message, socket, encryption_key, current_path);
     } else if recv_app_message.cmd == Cmd::Failure {
         println!("{}", recv_app_message.data[0]);
     } 
@@ -623,8 +629,8 @@ fn convert_path_to_enc<S>(filename: &String,
     let mut enc_path_segments: Vec<String> = get_encrypted_filenames(filename, current_path, socket, key).unwrap();     
     if enc_path_segments.len() >= 2 {
         enc_path_segments.remove(0); 
-        enc_path_segments.remove(0);
-        enc_path_segments.insert(0, "../FILESYSTEM/home".into()); 
+        // enc_path_segments.remove(0);
+        enc_path_segments.insert(0, "../FILESYSTEM/".into()); 
         return Path {
             path: enc_path_segments.iter().map(|x| (true, x.into())).collect()
         }
