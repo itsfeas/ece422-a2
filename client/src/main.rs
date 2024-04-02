@@ -121,7 +121,10 @@ fn main() -> Result<(), Error> {
                         cd(app_message, &mut socket, &mut aes_key, &mut path);
                     }
                     Cmd::NewConnection => {},
-                    Cmd::Echo => {},
+                    Cmd::Echo => {
+                        preprocess_app_message(&mut app_message, &path);
+                        echo(app_message, &mut socket, &mut aes_key, &path);
+                    },
                     Cmd::Touch => {
                         preprocess_app_message(&mut app_message, &path);
                         touch(app_message, &mut socket, &mut aes_key,  &path);
@@ -244,7 +247,7 @@ fn command_parser(input_str: String) -> Result<AppMessage, String> {
  * */
 fn extend_directory(fname: &String) -> String {
 
-    let relative_path = vec!["..", "FILESYSTEM", fname.as_str()].join("/"); 
+    let relative_path = vec!["..", "FILESYSTEM/home", fname.as_str()].join("/"); 
     return relative_path
 }
 
@@ -468,15 +471,30 @@ fn pwd(app_message: AppMessage,
 
 fn echo<S>(app_message: AppMessage, 
         socket: &mut WebSocket<S>, 
-        encryption_key: &mut Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write {
+        encryption_key: &mut Key<Aes256Gcm>,
+        current_path: &Path) -> Result<(), String> where S: std::io::Read, S: std::io::Write {
     if app_message.data.len() == 2 {
         println!("{}", &app_message.data[1]);
         return Ok(()); 
     }
-    send_encrypt(&app_message, socket, encryption_key).expect("Send Encrypt failed"); 
-
+    println!("app_message.data {:?}", app_message.data.clone());
+    let target_file = app_message.data[3].clone();
+    let to_be_written = app_message.data[1].clone();
+    let path_enc = convert_path_to_enc(&target_file, current_path, socket, encryption_key);
+    let mut path_enc_string = path_enc.to_string();
+    path_enc_string.remove(0);
+    println!("path_enc_string, {}", path_enc_string);
+    let file_data = match std::fs::read_to_string(path_enc_string.clone()) {
+        Ok(d) => d,
+        Err(e) => "".to_string(), // bad error handling 
+    };
+    send_encrypt(&AppMessage {
+        cmd: Cmd::Echo,
+        data: vec![current_path.to_string(), target_file, to_be_written, file_data]
+    }, socket, encryption_key).expect("Send Encrypt failed");
     let recv_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
-    if recv_app_message.cmd == Cmd::Touch {
+    if recv_app_message.cmd == Cmd::Echo {
+        std::fs::write(path_enc_string.clone(), recv_app_message.data[0].clone()).unwrap();
         return Ok(());
     } else if recv_app_message.cmd == Cmd::Failure {
         println!("{}", recv_app_message.data[0]);
@@ -606,7 +624,7 @@ fn convert_path_to_enc<S>(filename: &String,
     if enc_path_segments.len() >= 2 {
         enc_path_segments.remove(0); 
         enc_path_segments.remove(0);
-        enc_path_segments.insert(0, "../FILESYSTEM".into()); 
+        enc_path_segments.insert(0, "../FILESYSTEM/home".into()); 
         return Path {
             path: enc_path_segments.iter().map(|x| (true, x.into())).collect()
         }
