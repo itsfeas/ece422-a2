@@ -141,7 +141,7 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
                 id: row.get(0),
                 name: row.get(1),
                 path: row.get(2),
-                owner: row.get(3),
+                owner: row.try_get(3).unwrap_or("".to_string()),
                 hash: row.get(4),
                 parent: row.get(5),
                 dir: row.get(6),
