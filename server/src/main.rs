@@ -1,6 +1,8 @@
 use std::{borrow::{Borrow, BorrowMut}, cell::{Cell, RefCell}, env, fmt, hash::{self, Hasher}, io::Error, ops::ControlFlow, rc::Rc, sync::Arc, vec};
+use std; 
 use aes_gcm_siv::Aes256GcmSiv;
-use futures::SinkExt;
+use dao::get_f_node;
+use futures::{SinkExt, TryFutureExt};
 use futures_util::{future, StreamExt, TryStreamExt};
 use tokio::{net::{TcpListener, TcpStream}, sync::Mutex};
 use log::info;
@@ -13,6 +15,8 @@ use aes_gcm::{
     aead::{consts::U12, Aead, AeadCore, KeyInit}, Aes256Gcm, Key, Nonce
 };
 use std::str::from_utf8;
+use futures::future::{BoxFuture, FutureExt};
+use async_recursion::async_recursion;
 
 #[path ="./dao/dao.rs"]
 mod dao;
@@ -108,6 +112,10 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let msg = match (res_auth, res_user) {
                     (true, Ok(u)) => {
                         curr_user = Arc::new(user_name.clone());
+                        let mut owned_paths: Vec<String> = vec![]; 
+                        let homenode = get_f_node(pg_client.clone(), String::from("/home/") + user_name.clone().as_str()).await.unwrap().unwrap(); 
+                        search_tree_for_user(user_name.clone(), &homenode, &mut owned_paths, pg_client.clone()).await; 
+                        println!("PATHS OWNED BY USER: {:?}", owned_paths); 
                         AppMessage {
                             cmd: Cmd::Login,
                             data: vec![user_name.clone(), u.unwrap().is_admin.to_string()],
@@ -505,6 +513,33 @@ fn unencrypt_string_nononce(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str
         Ok(plaintext) => Ok(from_utf8(&plaintext.to_owned()).unwrap().to_string()),
         Err(_) => Err(()),
     }
+}
+
+#[async_recursion]
+async fn search_tree_for_user(owner: String, node: &FNode, paths: &mut Vec<String>, dao_client: Arc<Mutex<Client>>) -> Result<(), ()> {
+    
+
+    // search the node 
+    if node.owner == owner {
+        paths.push(node.path.clone()); 
+    }
+    println!("{:?}", node.path); 
+
+    // search children
+    if node.children.len() > 0 {
+        
+        for x in node.children.clone() { 
+            // x is a name 
+
+            let path: String = std::path::Path::new(node.path.as_str()).join(x).to_str().unwrap().into();
+            let fnode = get_f_node(dao_client.clone(), path).await.unwrap().unwrap();   
+
+            search_tree_for_user(owner.clone(), &fnode, paths, dao_client.clone()).await; 
+
+        }
+    }
+
+    Ok(())
 }
 
 async fn key_exchange_sequence(msg: &AppMessage, shared_secret: &mut Arc<Option<Arc<SharedSecret>>>, key: &mut Arc<Option<Key<Aes256Gcm>>>, ws_stream: &mut tokio_tungstenite::WebSocketStream<TcpStream>) {
