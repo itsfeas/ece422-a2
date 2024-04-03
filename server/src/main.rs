@@ -167,10 +167,6 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     Some(value) => value,
                     None => continue,
                 };
-                let msg = AppMessage {
-                    cmd: Cmd::Ls,
-                    data: f_node.children,
-                };
                 let has_read_perms = have_read_perms_for_file(&pg_client,
                     path_str.clone(), &curr_user).await;
                 if !has_read_perms {
@@ -180,19 +176,31 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     }).await;
                     continue;
                 }
-                // f_node.children.iter()
-                //     .map(|c| {dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+c).await.unwrap()})
-                //     .filter(|c| c.is_some())
-                //     .map(|c| c.unwrap())
-                //     .map(|c| (dao::get_user(pg_client.clone(), c.owner).await.unwrap().unwrap(), c))
-                //     .map(|(u, c)| {
-                //         if has_read_perms {
-                //             c.name
-                //         } else {
-                //             encrypt_string_nononce(u.key, &c.name);
-                //         }
-                //     })
-                    // .collect();
+                let children: Vec<String> = futures::stream::iter(f_node.children)
+                    .then(|c| dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+&c))
+                    .then(|c| future::ready(c.unwrap()))
+                    .filter(|c| future::ready(c.is_some()))
+                    .then(|c| future::ready(c.unwrap()))
+                    .then(|c| async {
+                        let u = dao::get_user(pg_client.clone(), c.owner.clone()).await.unwrap().unwrap();
+                        future::ready((u, c))
+                    })
+                    .then(|e| async {
+                        let (u, c) = e.await;
+                        let has_read_perms = have_read_perms_for_file(&pg_client, c.path.clone(), &curr_user).await;
+                        println!("user {} can access file {}: {}", u.user_name.clone(), c.path.clone(), has_read_perms.clone());
+                        if has_read_perms {
+                            c.name
+                        } else {
+                            c.encrypted_name
+                        }
+                    })
+                    .collect()
+                    .await;
+                let msg = AppMessage {
+                    cmd: Cmd::Ls,
+                    data: children,
+                };
                 send_app_message(&mut ws_stream, &mut key, msg).await;
             },
             Cmd::Touch => {
@@ -662,19 +670,25 @@ async fn have_write_perms_for_file(pg_client: &Arc<Mutex<Client>>,
 }
 
 async fn have_read_perms_for_file(pg_client: &Arc<Mutex<Client>>, path_str: String, curr_user_name: &Arc<String>) -> bool {
-    let f_node = dao::get_f_node(pg_client.clone(), path_str).await.unwrap().unwrap();
+    println!("path_str {}, p0", path_str.clone());
+    let f_node = dao::get_f_node(pg_client.clone(), path_str.clone()).await.unwrap().unwrap();
     if (f_node.o & 0b100)>0 {
+        println!("path_str {}, p1", path_str.clone());
         return true;
     };
     let curr_user = dao::get_user(pg_client.clone(), (**curr_user_name).clone()).await.unwrap().unwrap();
     let owner_user_name = f_node.owner;
     let owner_user = dao::get_user(pg_client.clone(), owner_user_name.clone()).await.unwrap().unwrap();
     if (f_node.u & 0b100)>0 && owner_user_name.eq(&(**curr_user_name).clone()) {
+        println!("path_str {}, p2", path_str.clone());
         return true;
     } else if curr_user.group_name.is_none() || owner_user.group_name.is_none() {
+        println!("path_str {}, p3", path_str.clone());
         return false;
     } else if (f_node.g & 0b100)>0 && curr_user.group_name.unwrap().eq(&owner_user.group_name.clone().unwrap()) {
+        println!("path_str {}, p4", path_str.clone());
         return true;
     }
+    println!("path_str {}, p5", path_str.clone());
     false
 }
