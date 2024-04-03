@@ -624,6 +624,9 @@ async fn get_key_for_file(pg_client: &Arc<Mutex<Client>>, path_str: String, curr
     let f_node = dao::get_f_node(pg_client.clone(), path_str).await.unwrap().unwrap();
     let curr_user = dao::get_user(pg_client.clone(), (**curr_user_name).clone()).await.unwrap().unwrap();
     let owner_user_name = f_node.owner;
+    if curr_user_name.is_empty() {
+        return None;
+    }
     let owner_user = dao::get_user(pg_client.clone(), owner_user_name.clone()).await.unwrap().unwrap();
     if (f_node.o & 0b100)>0 {
         // get f_node owner key
@@ -641,12 +644,14 @@ async fn get_key_for_file(pg_client: &Arc<Mutex<Client>>, path_str: String, curr
 async fn have_write_perms_for_file(pg_client: &Arc<Mutex<Client>>,
         path_str: String, curr_user_name: &Arc<String>) -> bool {
     let f_node = dao::get_f_node(pg_client.clone(), path_str).await.unwrap().unwrap();
+    if (f_node.o & 0b010)>0 {
+        // get f_node owner key
+        return true;
+    };
     let curr_user = dao::get_user(pg_client.clone(), (**curr_user_name).clone()).await.unwrap().unwrap();
     let owner_user_name = f_node.owner;
     let owner_user = dao::get_user(pg_client.clone(), owner_user_name.clone()).await.unwrap().unwrap();
-    if (f_node.o & 0b010)>0 {
-        // get f_node owner key
-    } else if (f_node.u & 0b010)>0 && owner_user_name.eq(&(**curr_user_name).clone()) {
+    if (f_node.u & 0b010)>0 && owner_user_name.eq(&(**curr_user_name).clone()) {
         return true;
     } else if curr_user.group_name.is_none() || owner_user.group_name.is_none() {
         return false;
@@ -657,8 +662,19 @@ async fn have_write_perms_for_file(pg_client: &Arc<Mutex<Client>>,
 }
 
 async fn have_read_perms_for_file(pg_client: &Arc<Mutex<Client>>, path_str: String, curr_user_name: &Arc<String>) -> bool {
-    match get_key_for_file(pg_client, path_str, curr_user_name).await {
-        Some(_) => true,
-        None => false
+    let f_node = dao::get_f_node(pg_client.clone(), path_str).await.unwrap().unwrap();
+    if (f_node.o & 0b100)>0 {
+        return true;
+    };
+    let curr_user = dao::get_user(pg_client.clone(), (**curr_user_name).clone()).await.unwrap().unwrap();
+    let owner_user_name = f_node.owner;
+    let owner_user = dao::get_user(pg_client.clone(), owner_user_name.clone()).await.unwrap().unwrap();
+    if (f_node.u & 0b100)>0 && owner_user_name.eq(&(**curr_user_name).clone()) {
+        return true;
+    } else if curr_user.group_name.is_none() || owner_user.group_name.is_none() {
+        return false;
+    } else if (f_node.g & 0b100)>0 && curr_user.group_name.unwrap().eq(&owner_user.group_name.clone().unwrap()) {
+        return true;
     }
+    false
 }
