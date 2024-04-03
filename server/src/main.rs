@@ -308,6 +308,15 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     }).await;
                     continue;
                 };
+                let has_write_perms = have_write_perms_for_file(&pg_client, f_node.path.clone(), &curr_user).await;
+                if !has_write_perms {
+                    send_app_message(&mut ws_stream, &mut key, AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["do not have sufficient write privileges!".to_string()],
+                    }).await;
+                    continue;
+                }
+
                 let additional_str = msg.data.get(2).unwrap();
                 let file_data = msg.data.get(3).unwrap();
                 let mut user_key = Arc::new(get_user_key(&pg_client.clone(), &curr_user).await);
