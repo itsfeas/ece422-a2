@@ -1,6 +1,6 @@
 use std::{fmt::format, sync::Arc};
 
-use aes_gcm::{Aes256Gcm, KeyInit};
+use aes_gcm::{Aes256Gcm, Key, KeyInit};
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
 use argon2::{
@@ -12,8 +12,8 @@ use argon2::{
 use model::model::{FNode, User};
 
 pub async fn add_file(client: Arc<Mutex<Client>>, file: FNode) -> Result<String, String> {
-    let e = client.lock().await.execute("INSERT INTO fnode (name, path, owner, hash, parent, dir, u, g, o, children) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-    &[&file.name, &file.path, &file.owner, &file.hash, &file.parent, &file.dir, &file.u, &file.g, &file.o, &file.children]).await;
+    let e = client.lock().await.execute("INSERT INTO fnode (name, path, owner, hash, parent, dir, u, g, o, children, encrypted_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+    &[&file.name, &file.path, &file.owner, &file.hash, &file.parent, &file.dir, &file.u, &file.g, &file.o, &file.children, &file.encrypted_name]).await;
     match e {
         Ok(_) => Ok(file.name),
         Err(err) => Err(format!("{}",err)),
@@ -75,7 +75,7 @@ pub async fn auth_user(client: Arc<Mutex<Client>>, user_name: String, pass: Stri
 }
 
 //used https://docs.rs/argon2/latest/argon2/
-pub async fn create_user(client: Arc<Mutex<Client>>, user_name: String, pass: String, group: Option<String>, is_admin: bool) -> Result<String, String>{
+pub async fn create_user(client: Arc<Mutex<Client>>, user_name: String, pass: String, group: Option<String>, is_admin: bool) -> Result<Key<Aes256Gcm>, String>{
     let salt = match salt_pass(pass){
         Ok(salt) => salt,
         Err(_) => return Err(format!("couldn't hash user pass while creating user!")),
@@ -88,7 +88,7 @@ pub async fn create_user(client: Arc<Mutex<Client>>, user_name: String, pass: St
     &[&user_name, &salt, &key, &is_admin]).await,
     };
     match e {
-        Ok(_) => Ok(user_name),
+        Ok(_) => Ok(serde_json::from_str::<[u8; 32]>(&key).unwrap().into()),
         Err(e) => Err(format!("couldn't create user! {}", e)),
     }
 }

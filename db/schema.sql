@@ -10,7 +10,7 @@ CREATE TABLE if not exists fnode  (
     g SMALLINT,
     o SMALLINT,
     children VARCHAR[],
-    encrypted_name: VARCHAR
+    encrypted_name VARCHAR
 );
 
 CREATE TABLE groups (
@@ -28,4 +28,4 @@ CREATE TABLE users (
     is_admin BOOLEAN
 );
 
-INSERT INTO fnode (name, path, owner, hash, parent, dir, u, g, o, children) VALUES ('home', '/home', NULL, '', '/', true, 7, 7, 7, ARRAY[]::BIGINT[]);
+INSERT INTO fnode (name, path, owner, hash, parent, dir, u, g, o, children, encrypted_name) VALUES ('home', '/home', NULL, '', '/', true, 7, 7, 7, ARRAY[]::VARCHAR[], '');
