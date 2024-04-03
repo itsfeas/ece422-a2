@@ -331,7 +331,11 @@ fn cd<S>(app_message: AppMessage,
 
     let rec_app_message = recv_decrypt(socket, encryption_key).expect("Recv decrypt failed"); 
     if rec_app_message.cmd == Cmd::Cd {
-        let enc_path = convert_path_to_enc(&target_dir, current_path, socket, encryption_key); 
+        let enc_path_wrapped = convert_path_to_enc(&target_dir, current_path, socket, encryption_key);
+        if enc_path_wrapped.is_err() {
+            return Err("No encrypted path returned".to_string())
+        }
+        let enc_path = enc_path_wrapped.unwrap();
         if enc_path.path.len() == 0 { // cd to root and home level
             
         } else {
@@ -356,7 +360,11 @@ fn mkdir<S>(msg: AppMessage,
     if recv_msg.cmd == Cmd::Mkdir {
         // let enc_filename = get_encrypted_filenames(vec![target_path.clone()], socket, encryption_key).unwrap()[0].clone(); 
         let enc_filename = recv_msg.data[0].clone(); 
-        let mut enc_path = convert_path_to_enc(&target_path, current_path, socket, encryption_key); 
+        let enc_path_wrapped = convert_path_to_enc(&target_path, current_path, socket, encryption_key);
+        if enc_path_wrapped.is_err() {
+            return Err("No encrypted path returned".to_string())
+        }
+        let enc_path = enc_path_wrapped.unwrap();
         if enc_path.path.len() == 0 { // cd to root and home level
             println!("{}", "Cannot mkdir on this level.") 
         } else {
@@ -411,7 +419,11 @@ fn touch<S>(app_message: AppMessage,
 
     let recv_app_message = recv_decrypt(socket, encryption_key).unwrap(); 
     if recv_app_message.cmd == Cmd::Touch {
-        let path_enc = convert_path_to_enc(&target_dir, current_path, socket, encryption_key); 
+        let enc_path_wrapped = convert_path_to_enc(&target_dir, current_path, socket, encryption_key);
+        if enc_path_wrapped.is_err() {
+            return Err("No encrypted path returned".to_string())
+        }
+        let path_enc = enc_path_wrapped.unwrap();
         if path_enc.path.len() > 0 {
             File::create(path_enc.path.iter().map(|x| {
                 if !x.0 {
@@ -437,7 +449,11 @@ fn cat<S>(msg: &mut AppMessage,
        current_path: &Path
     ) -> Result<(), String> where S:std::io::Read, S:std::io::Write { 
     let target_file = msg.data[1].clone();
-    let path_enc = convert_path_to_enc(&target_file, current_path, socket, encryption_key);
+    let enc_path_wrapped = convert_path_to_enc(&target_file, current_path, socket, encryption_key);
+    if enc_path_wrapped.is_err() {
+        return Err("No encrypted path returned".to_string())
+    }
+    let path_enc = enc_path_wrapped.unwrap();
     let mut path_enc_string = path_enc.to_string();
     path_enc_string.remove(0);
     println!("path_enc_string, {}", path_enc_string);
@@ -481,7 +497,7 @@ fn echo<S>(app_message: AppMessage,
     println!("app_message.data {:?}", app_message.data.clone());
     let target_file = app_message.data[3].clone();
     let to_be_written = app_message.data[1].clone();
-    let path_enc = match convert_path_to_enc_res(&target_file, current_path, socket, encryption_key) {
+    let path_enc = match convert_path_to_enc(&target_file, current_path, socket, encryption_key) {
         Ok(e) => e,
         Err(_) => {
             touch(AppMessage {
@@ -646,37 +662,7 @@ fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Resu
 
 }
 
-/*  ONLY FOR CLIENT SIDE USE
- *  final encrypted path will include the filename
- *  
- * */
 fn convert_path_to_enc<S>(filename: &String, 
-                          current_path: &Path, 
-                          socket: &mut WebSocket<S>, 
-                          key: &mut Key<Aes256Gcm>) -> Path where S: std::io::Read, S: std::io::Write { 
-    // println!("path {:#?}", current_path.clone());
-    let mut msg = AppMessage {
-        cmd: Cmd::GetEncryptedFile, 
-        data: vec![filename.clone()]
-    }; 
-    let mod_current_path = preprocess_app_message(&mut msg, current_path).unwrap(); 
-    println!("{:?}", msg); 
-
-    let mut enc_path_segments: Vec<String> = get_encrypted_filenames(&msg.data[1].clone(), &mod_current_path, socket, key).unwrap();     
-    if enc_path_segments.len() >= 2 {
-        enc_path_segments.remove(0); 
-        // enc_path_segments.remove(0);
-        enc_path_segments.insert(0, "../FILESYSTEM/".into()); 
-        return Path {
-            path: enc_path_segments.iter().map(|x| (true, x.into())).collect()
-        }
-    }
-    return Path {
-        path: vec![]
-    }
-}
-
-fn convert_path_to_enc_res<S>(filename: &String, 
                           current_path: &Path, 
                           socket: &mut WebSocket<S>, 
                           key: &mut Key<Aes256Gcm>) -> Result<Path, ()> where S: std::io::Read, S: std::io::Write { 
