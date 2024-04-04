@@ -53,7 +53,7 @@ fn main() -> Result<(), Error> {
         let std_io = io::stdin();
         println!("Welcome");
         println!("Login as follows: login <username> <password>");
-        // println!("Or sign up as a new user: new_user <username> <password>");
+        
         // obtain input from command line 
         get_input(&std_io, &mut line);
         let cmd_input = String::from(line.clone()); // placeholder -- user can type username or "new"
@@ -73,19 +73,6 @@ fn main() -> Result<(), Error> {
             }
         }
         
-        
-        // if let LoginStatus::New(s) = login_state.clone() {
-        //     println!("signup successful");
-        //     let mut path = Path {
-        //         path: vec![(false, "/".into()), (false, "home".into())]
-        //     };
-
-        //     app_message = AppMessage {cmd: Cmd::Mkdir, data: vec![path.to_string(), s.0.clone()]};
-        //     println!("app msg{:?}", app_message);
-        //     println!("path {:?}", path);
-        //     mkdir(app_message, &mut socket, &mut aes_key,  &path);
-        //     continue;
-        // };
         if let LoginStatus::Failure = login_state.clone() {
             println!("failure at login");
             continue;
@@ -104,9 +91,8 @@ fn main() -> Result<(), Error> {
             loop {
                 print!("{}>>",path);
                 stdout().flush();
-                // println!("Enter Command");
                 let mut line = String::new();
-                // let std_io = io::stdin();
+                
                 get_input(&std_io, &mut line);
                 if (line.is_empty()) {
                     continue;
@@ -167,17 +153,6 @@ fn main() -> Result<(), Error> {
                     Cmd::NewUser => {
                         if (s.1.clone()) {
                             new_user(&app_message, &mut socket, &mut aes_key).unwrap();
-                            // let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
-                            // app_message.data = app_message.data.split_off(1);
-                            // login_state = login_signup(&app_message, &mut socket, &mut aes_key);
-                            // if let LoginStatus::New(new_s) = login_state.clone() {
-                            //     println!("signup successful");
-                            //     let mut path = Path {
-                            //         path: vec![(false, "/".into()), (false, "home".into())]
-                            //     };
-                            //     app_message = AppMessage {cmd: Cmd::Mkdir, data: vec![path.to_string(), new_s.0.clone()]};
-                            //     mkdir(app_message, &mut socket, &mut aes_key,  &rel_current_path);
-                            // }
                         } else {
                             println!("this command is available to admin users only");
                         }
@@ -188,10 +163,7 @@ fn main() -> Result<(), Error> {
             }
         }
         else {
-
         }
-
-
 
     }
     // Ok(())
@@ -199,38 +171,26 @@ fn main() -> Result<(), Error> {
 
 fn new_user<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write  {
     send_encrypt(msg, socket, key).unwrap();
-    let new_user_res = recv_decrypt(socket, key).unwrap();
-    
+    let new_user_res = recv_decrypt(socket, key).unwrap();    
     if new_user_res.cmd == Cmd::NewUser {
         println!("signup success");
         let new_dir = new_user_res.data[0].clone();
-        // let full_path = 
         create_dir_all("../FILESYSTEM/".to_string()+ &new_dir.clone()).unwrap(); 
     } else {
         return Err("failed to create new user".to_string());
     }
-
     Ok(())
 }
 
-// fn setup_connection<S>(socket: &mut WebSocket<S>) where S: std::io::Read, S: std::io::Write {
-//     let shared_secret = key_exchange(socket); 
-//     println!("DEBUG: {:?}", Vec::from(shared_secret.as_ref()));  
-// }
-
 /*
- * input_str: either the username, or "new" */
+ * logs in user and returns is_admin; otherwise failure */
 fn login<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) -> LoginStatus where S: std::io::Read, S: std::io::Write  {
 
     
     send_encrypt(msg, socket, key).unwrap();
     println!("Message sent"); 
-    // let response = socket.read().expect("Error reading message");
+    
     let login_res = recv_decrypt(socket, key).unwrap();
-    // println!("Received: {}", response);
-    // println!("DEBUG: reached"); 
-    // let login_res: AppMessage = serde_json::from_str(response.to_text().unwrap()).expect("Deserialize failed for login/signup response!");
-    // let server_public: Cmd = serde_json::from_str(&login_res.cmd).expect("Deserialize failed for server_public!");
     if login_res.cmd == Cmd::Login{
         let is_admin: bool = match login_res.data[1].as_str() {
             "true" => true,
@@ -241,18 +201,6 @@ fn login<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm
     } else {
         return LoginStatus::Failure;
     }
-    // user types username 
-    // let username = String::from("itsnotfeas"); 
-
-    // encrypt
-    
-    
-    // send to socket (username, encrypted username)
-
-    // return LoginStatus::New(username); 
-
-    // LoginStatus::Failed("".to_string())
-    // else
 }
 
 fn encrypt_msg(key: &mut Option<Key<Aes256Gcm>>, msg: &AppMessage) -> (String, Nonce<typenum::U12>) {
