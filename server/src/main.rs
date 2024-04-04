@@ -220,6 +220,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 authenticated = res_auth;
             },
             Cmd::Scan => {
+                // don't run scan for directories
                 let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
                     Some(value) => value,
                     None => continue,
@@ -229,7 +230,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let msg = if hash_new.eq(&hash_existing) {
                     AppMessage {
                         cmd: Cmd::Scan,
-                        data: vec!["failed to login!".to_string()],
+                        data: vec![format!("failed to ensure integrity of {}!", path_str)],
                     }
                 } else {
                     AppMessage {
@@ -337,9 +338,10 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     }).await;
                     continue;
                 }
+                let user_key = get_key_for_file(&pg_client.clone(), old_path_str.clone(), &curr_user).await;
                 dao::update_path(pg_client.clone(), old_path_str, new_path.clone()).await;
-                let user_key: Key<Aes256Gcm> = (*curr_user_key).into();
-                let encrypted_name_new = encrypt_string_nononce(&mut Arc::new(Some(user_key)), new_name.clone()).unwrap();
+                let encrypted_name_new = encrypt_string_nononce(&mut Arc::new(user_key), new_name.clone()).unwrap();
+                // println!("old_path_vec_enc {:?}", old_path_str);
                 dao::update_fnode_name_if_path_is_already_updated(pg_client.clone(), new_path.clone(), new_name.clone()).await;
                 dao:: update_fnode_enc_name(pg_client.clone(), new_path.clone(), encrypted_name_new);
                 dao::remove_file_from_parent(pg_client.clone(), msg.data[0].clone(), msg.data[1].clone()).await;
@@ -348,7 +350,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let new_path_vec_enc = path_str_to_encrypted_path(new_path.clone(), &pg_client).await;
                 send_app_message(&mut ws_stream, &mut key, AppMessage {
                     cmd: Cmd::Failure,
-                    data: vec![path_vec_to_str(old_path_vec_enc), path_vec_to_str(new_path_vec_enc)],
+                    data: vec!["/home".to_string()+&path_vec_to_str(old_path_vec_enc), "/home".to_string()+&path_vec_to_str(new_path_vec_enc)],
                 }).await;
             },
             Cmd::Touch => {
@@ -735,7 +737,11 @@ async fn search_tree_for_user(owner: String, node: &FNode, paths: &mut Vec<(Stri
     if node.children.len() > 0 {
         for child_name in node.children.clone() { 
             let path: String = std::path::Path::new(node.path.as_str()).join(child_name).to_str().unwrap().into();
-            let child_fnode = get_f_node(dao_client.clone(), path).await.unwrap().unwrap();
+            let child_fnode_opt = get_f_node(dao_client.clone(), path).await.unwrap();
+            if child_fnode_opt.is_none() {
+                continue;
+            }
+            let child_fnode = child_fnode_opt.unwrap();
             search_tree_for_user(owner.clone(), &child_fnode, paths, dao_client.clone(), child_path_enc.clone()).await; 
         }
     }

@@ -177,8 +177,9 @@ pub async fn change_file_perms(client: Arc<Mutex<Client>>, file_path: String, u:
 }
 
 pub async fn update_path(client: Arc<Mutex<Client>>, file_path: String, new_file_path: String) -> Result<(), String>{
-    let e = client.lock().await.execute("UPDATE fnode SET path = regexp_replace(path, '^$1', '$2', 'g') WHERE path ~ '^$1'",
-    &[&file_path, &new_file_path]).await;
+    let e = client.lock().await.execute("UPDATE fnode SET path = regexp_replace(path, $1, $2, 'g') WHERE path ~ $3",
+        &[&format!("^{}", file_path), &new_file_path, &format!("^{}", file_path)]
+    ).await;
     match e {
         Ok(_) => Ok(()),
         _ => Err("Failed to update path!".to_string()),

@@ -498,7 +498,7 @@ fn mv<S>(msg: &mut AppMessage,
     let old_path = unencrypted_response.data[0].clone();
     let new_path = unencrypted_response.data[1].clone();
     println!("attempting to rename {} to {}", old_path, new_path);
-    rename(old_path, new_path).unwrap();
+    rename("../FILESYSTEM".to_string()+&old_path, "../FILESYSTEM".to_string()+&new_path).unwrap();
     Ok(())
  }
 
