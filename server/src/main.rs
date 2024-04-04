@@ -193,6 +193,27 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 send_app_message(&mut ws_stream, &mut key, msg).await;
                 authenticated = res_auth;
             },
+            Cmd::Scan => {
+                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone()+"/"+&msg.data[1].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let hash_existing = f_node.hash;
+                let hash_new = hash_file(msg.data[2].clone());
+                let msg = if hash_new.eq(&hash_existing) {
+                    AppMessage {
+                        cmd: Cmd::Scan,
+                        data: vec!["failed to login!".to_string()],
+                    }
+                } else {
+                    AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["integrity of file compromised!".to_string()],
+                    }
+                };
+                send_app_message(&mut ws_stream, &mut key, msg).await;
+                continue;
+            },
             Cmd::Cd => {
                 let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
                     Some(value) => value,
@@ -435,7 +456,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 }
                 let new_file_str = plaintext_str.to_owned()+additional_str;
                 let encrypted_file_data = encrypt_string_nononce(&mut user_key, new_file_str.clone()).unwrap();
-                let new_hash = hash_file(new_file_str.clone());
+                let new_hash = hash_file(encrypted_file_data.clone());
                 let update = dao::update_hash(pg_client.clone(), path_str, f_node.name, new_hash).await;
                 let resp = match update {
                     Ok(_) => AppMessage {
