@@ -194,6 +194,15 @@ pub async fn update_fnode_name_if_path_is_already_updated(client: Arc<Mutex<Clie
     }
 }
 
+pub async fn update_fnode_enc_name(client: Arc<Mutex<Client>>, path: String, new_enc_name: String) -> Result<(), String>{
+    let e = client.lock().await.execute("UPDATE fnode SET encrypted_name = $2 WHERE path = $1",
+    &[&path, &new_enc_name]).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to update f_node name!".to_string()),
+    }
+}
+
 pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<Option<User>, String> {
     let e = client.lock().await.query_opt("SELECT * FROM users WHERE user_name = $1", &[&user_name]).await;
     match e {
@@ -211,7 +220,7 @@ pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<O
 }
 
 pub async fn get_group(client: Arc<Mutex<Client>>, group_name: String) -> Result<Option<String>, String> {
-    let e = client.lock().await.query_opt("SELECT name FROM groups WHERE g_name = $1", &[&group_name]).await;
+    let e = client.lock().await.query_opt("SELECT g_name FROM groups WHERE g_name = $1", &[&group_name]).await;
     match e {
         Ok(Some(_)) => Ok(Some(group_name)),
         Ok(None) => Ok(None),

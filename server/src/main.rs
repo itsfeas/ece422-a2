@@ -257,7 +257,10 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     continue;
                 }
                 dao::update_path(pg_client.clone(), old_path_str, new_path.clone()).await;
+                let user_key: Key<Aes256Gcm> = (*curr_user_key).into();
+                let encrypted_name_new = encrypt_string_nononce(&mut Arc::new(Some(user_key)), new_name.clone()).unwrap();
                 dao::update_fnode_name_if_path_is_already_updated(pg_client.clone(), new_path.clone(), new_name.clone()).await;
+                dao:: update_fnode_enc_name(pg_client.clone(), new_path.clone(), encrypted_name_new);
                 dao::remove_file_from_parent(pg_client.clone(), msg.data[0].clone(), msg.data[1].clone()).await;
                 dao::add_file_to_parent(pg_client.clone(), msg.data[0].clone(), new_name).await;
 
