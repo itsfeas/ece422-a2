@@ -141,7 +141,7 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
                 id: row.get(0),
                 name: row.get(1),
                 path: row.get(2),
-                owner: row.get(3),
+                owner: row.try_get(3).unwrap_or("".to_string()),
                 hash: row.get(4),
                 parent: row.get(5),
                 dir: row.get(6),
@@ -182,13 +182,13 @@ pub async fn get_group(client: Arc<Mutex<Client>>, group_name: String) -> Result
     }
 }
 
-//////////////////////////////////
-///     FILESYSTEM MOVEMENT    ///
-//////////////////////////////////
+// //////////////////////////////////
+// ///     FILESYSTEM MOVEMENT    ///
+// //////////////////////////////////
 
 
-pub trait Traversal {
-    fn make_child(&self) -> Result<Self, String> where Self: Sized; 
-    fn get_child(&self) -> Result<Self, String> where Self: Sized; 
-    fn set_child(&mut self) -> Result<Self, String> where Self: Sized; 
-}
+// pub trait Traversal {
+//     fn make_child(&self) -> Result<Self, String> where Self: Sized; 
+//     fn get_child(&self) -> Result<Self, String> where Self: Sized; 
+//     fn set_child(&mut self) -> Result<Self, String> where Self: Sized; 
+// }
