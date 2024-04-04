@@ -158,6 +158,15 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
     }
 }
 
+pub async fn change_file_perms(client: Arc<Mutex<Client>>, file_path: String, u: i16, g: i16, o: i16) -> Result<(), String>{
+    let e = client.lock().await.execute("UPDATE fnode SET u=$2, g=$3, o=$4 WHERE path=$1",
+    &[&file_path, &u, &g, &o]).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to update file permissions!".to_string()),
+    }
+}
+
 pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<Option<User>, String> {
     let e = client.lock().await.query_opt("SELECT * FROM users WHERE user_name = $1", &[&user_name]).await;
     match e {

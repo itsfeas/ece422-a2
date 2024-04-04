@@ -104,6 +104,32 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     }
                 }
             },
+            Cmd::NewGroup => {
+                let new_group = msg.data.get(0).expect("new group name not supplied!").to_owned();
+                let res = dao::get_group(pg_client.clone(), new_group.clone()).await.unwrap();
+                if res.is_some() {
+                    send_app_message(&mut ws_stream, &mut key, AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["group already exists!".to_string()]
+                    }).await;
+                    continue;
+                }
+                let create_query = dao::create_group(pg_client.clone(), new_group.clone()).await.unwrap();
+                send_app_message(&mut ws_stream, &mut key, AppMessage {
+                    cmd: Cmd::NewGroup,
+                    data: vec![create_query]
+                }).await;
+                continue;
+            },
+            Cmd::Chmod => {
+                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone()+"/"+&msg.data[1].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let ugo = msg.data[2];
+                let perms: Vec<i16> = ugo.split("").into_iter().map(|s| i16::from(s)).collect();
+                println!("new perms {:?}", perms);
+            }
             Cmd::Login => {
                 let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
                 let pass = msg.data.get(1).expect("password not supplied!").to_owned();
@@ -117,11 +143,12 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         curr_user_key = Arc::new(serde_json::from_str::<[u8; 32]>(&u_unwrapped.key).unwrap().into());
                         let mut owned_paths: Vec<String> = vec![]; 
                         let homenode = get_f_node(pg_client.clone(), String::from("/home/") + user_name.clone().as_str()).await.unwrap().unwrap(); 
-                        search_tree_for_user(user_name.clone(), &homenode, &mut owned_paths, pg_client.clone()).await; 
+                        let root_f_node = "/home".to_string();
+                        search_tree_for_user(user_name.clone(), &homenode, &mut owned_paths, pg_client.clone(), root_f_node).await; 
                         println!("PATHS OWNED BY USER: {:?}", owned_paths); 
                         AppMessage {
                             cmd: Cmd::Login,
-                            data: vec![user_name.clone(), u_unwrapped.is_admin.to_string()],
+                            data: vec![user_name.clone(), u_unwrapped.is_admin.to_string(), serde_json::to_string(&owned_paths).unwrap()],
                         }
                     },
                     ((true, Err(_)) | (false, _)) => {
@@ -150,6 +177,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         cmd: Cmd::Failure,
                         data: vec!["do not have read permissions!".to_string()],
                     }).await;
+                    continue;
                 }
                 let parent_contains = f_node.children.contains(target_path);
                 let resp = if parent_contains && child_query.is_some() && child_query.unwrap().dir {
@@ -573,26 +601,20 @@ fn unencrypt_string_nononce(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str
 }
 
 #[async_recursion]
-async fn search_tree_for_user(owner: String, node: &FNode, paths: &mut Vec<String>, dao_client: Arc<Mutex<Client>>) -> Result<(), ()> {
-    
-
-    // search the node 
+async fn search_tree_for_user(owner: String, node: &FNode, paths: &mut Vec<String>, dao_client: Arc<Mutex<Client>>, parent_enc_path: String) -> Result<(), ()> {
+    let child_path_enc: String = parent_enc_path.clone()+"/"+&node.encrypted_name;
+    // // search the node 
     if node.owner == owner {
-        paths.push(node.path.clone()); 
+        paths.push(child_path_enc.clone());
     }
     println!("{:?}", node.path); 
 
     // search children
     if node.children.len() > 0 {
-        
-        for x in node.children.clone() { 
-            // x is a name 
-
-            let path: String = std::path::Path::new(node.path.as_str()).join(x).to_str().unwrap().into();
-            let fnode = get_f_node(dao_client.clone(), path).await.unwrap().unwrap();   
-
-            search_tree_for_user(owner.clone(), &fnode, paths, dao_client.clone()).await; 
-
+        for child_name in node.children.clone() { 
+            let path: String = std::path::Path::new(node.path.as_str()).join(child_name).to_str().unwrap().into();
+            let child_fnode = get_f_node(dao_client.clone(), path).await.unwrap().unwrap();
+            search_tree_for_user(owner.clone(), &child_fnode, paths, dao_client.clone(), child_path_enc.clone()).await; 
         }
     }
 
@@ -695,21 +717,27 @@ async fn get_key_for_file(pg_client: &Arc<Mutex<Client>>, path_str: String, curr
 
 async fn have_write_perms_for_file(pg_client: &Arc<Mutex<Client>>,
         path_str: String, curr_user_name: &Arc<String>) -> bool {
-    let f_node = dao::get_f_node(pg_client.clone(), path_str).await.unwrap().unwrap();
+    println!("w_path_str {}, p0", path_str.clone());
+    let f_node = dao::get_f_node(pg_client.clone(), path_str.clone()).await.unwrap().unwrap();
     if (f_node.o & 0b010)>0 {
         // get f_node owner key
+        println!("w_path_str {}, p1", path_str.clone());
         return true;
     };
     let curr_user = dao::get_user(pg_client.clone(), (**curr_user_name).clone()).await.unwrap().unwrap();
     let owner_user_name = f_node.owner;
     let owner_user = dao::get_user(pg_client.clone(), owner_user_name.clone()).await.unwrap().unwrap();
     if (f_node.u & 0b010)>0 && owner_user_name.eq(&(**curr_user_name).clone()) {
+        println!("w_path_str {}, p2", path_str.clone());
         return true;
     } else if curr_user.group_name.is_none() || owner_user.group_name.is_none() {
+        println!("w_path_str {}, p3", path_str.clone());
         return false;
     } else if (f_node.g & 0b010)>0 && curr_user.group_name.unwrap().eq(&owner_user.group_name.clone().unwrap()) {
+        println!("w_path_str {}, p4", path_str.clone());
         return true;
     }
+    println!("w_path_str {}, p5", path_str.clone());
     false
 }
 
