@@ -168,6 +168,7 @@ fn main() -> Result<(), Error> {
                         if (s.1.clone()) {
                             let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
                             login_signup(&app_message, &mut socket, &mut aes_key);
+                            mkdir(app_message, &mut socket, &mut aes_key,  &path);
                         } else {
                             println!("this command is available to admin users only");
                         }
