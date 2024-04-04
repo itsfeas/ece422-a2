@@ -110,13 +110,14 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                                 cmd: Cmd::Failure,
                                 data: vec!["please use another user name!".to_string().clone()]
                             };
+                            continue;
                         }
                         let mut user_key = Arc::new(Some(new_user_key));
                         let encrypted_file_name = encrypt_string_nononce(&mut user_key, new_dir_name.clone()).unwrap();
                         let new_dir_f_node = FNode {
                             id: 0,
                             name: new_dir_name.clone(),
-                            path: path_str.clone()+"/"+&new_dir_name.clone(),
+                            path: "/home/".to_string()+&new_dir_name.clone(),
                             owner: user_name.clone(),
                             hash: hash_file("".to_string()),
                             parent: path_str.clone(),
@@ -128,6 +129,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                             encrypted_name: encrypted_file_name.clone()
                         };
                         let update = dao::add_file(pg_client.clone(), new_dir_f_node).await.unwrap();
+                        dao::add_file_to_parent(pg_client.clone(), "/home".to_string(), new_dir_name.clone()).await;
 
                         let response = AppMessage {
                             cmd: Cmd::NewUser,
