@@ -244,6 +244,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     Some(value) => value,
                     None => continue,
                 };
+                let mut old_path_vec_enc = path_str_to_encrypted_path(new_path.clone(), &pg_client).await;
                 let new_path = msg.data[0].clone()+"/"+&msg.data[2].clone();
                 let new_name = msg.data[2].clone();
                 let has_write_perms = have_write_perms_for_file(&pg_client,
@@ -255,10 +256,16 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     }).await;
                     continue;
                 }
-                dao::update_path(pg_client.clone(), old_path_str, new_path).await;
+                dao::update_path(pg_client.clone(), old_path_str, new_path.clone()).await;
                 dao::update_fnode_name_if_path_is_already_updated(pg_client.clone(), new_path, new_name.clone()).await;
                 dao::remove_file_from_parent(pg_client.clone(), msg.data[0].clone(), msg.data[1].clone()).await;
                 dao::add_file_to_parent(pg_client.clone(), msg.data[0].clone(), new_name).await;
+
+                let mut new_path_vec_enc = path_str_to_encrypted_path(new_path.clone(), &pg_client).await;
+                send_app_message(&mut ws_stream, &mut key, AppMessage {
+                    cmd: Cmd::Failure,
+                    data: vec![path_vec_to_str(old_path_vec_enc), path_vec_to_str(new_path_vec_enc)],
+                }).await;
             },
             Cmd::Touch => {
                 let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
@@ -784,4 +791,13 @@ async fn have_read_perms_for_file(pg_client: &Arc<Mutex<Client>>, path_str: Stri
     }
     println!("path_str {}, p5", path_str.clone());
     false
+}
+
+fn path_vec_to_str(path: Vec<String>) -> String {
+    let mut path_string = path.iter().map(|x| {
+                x.clone()
+            }).filter(|x| x != "/").collect::<Vec<String>>().join("/");
+
+    path_string.insert_str(0, "/"); 
+    format!("{}", path_string)
 }
