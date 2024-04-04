@@ -167,6 +167,7 @@ fn main() -> Result<(), Error> {
                     Cmd::NewUser => {
                         if (s.1.clone()) {
                             let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
+                            app_message.data = app_message.data.split_off(1);
                             login_signup(&app_message, &mut socket, &mut aes_key);
                         } else {
                             println!("this command is available to admin users only");
@@ -516,6 +517,7 @@ fn mv<S>(msg: &mut AppMessage,
     current_path: &Path
  ) -> Result<(), String> where S:std::io::Read, S:std::io::Write {
     send_encrypt(msg, socket, encryption_key).unwrap();
+    recv_decrypt(socket, encryption_key).expect("Recv get failed"); 
     Ok(())
  }
 
@@ -524,7 +526,9 @@ fn mv<S>(msg: &mut AppMessage,
     encryption_key: &mut Key<Aes256Gcm>,
     current_path: &Path
  ) -> Result<(), String> where S:std::io::Read, S:std::io::Write {
+    msg.data = msg.data.split_off(1);
     send_encrypt(msg, socket, encryption_key).unwrap();
+    recv_decrypt(socket, encryption_key).expect("Recv get failed"); 
     Ok(())
  }
 
