@@ -20,7 +20,7 @@ use typenum::U12;
 enum LoginStatus {
     New((String, bool)),
     Success((String, bool)), 
-    Failure()
+    Failure
 }
 
 
@@ -53,7 +53,7 @@ fn main() -> Result<(), Error> {
         let std_io = io::stdin();
         println!("Welcome");
         println!("Login as follows: login <username> <password>");
-        println!("Or sign up as a new user: new_user <username> <password>");
+        // println!("Or sign up as a new user: new_user <username> <password>");
         // obtain input from command line 
         get_input(&std_io, &mut line);
         let cmd_input = String::from(line.clone()); // placeholder -- user can type username or "new"
@@ -65,29 +65,29 @@ fn main() -> Result<(), Error> {
         let mut login_state;
         match app_message.cmd {
             Cmd::Login => {
-                login_state = login_signup(&app_message, &mut socket, &mut aes_key.clone());  
+                login_state = login(&app_message, &mut socket, &mut aes_key.clone());  
             },
             _ => {
-                println!("Please use one of the commands as specified.");
+                println!("Please use login as specified.");
                 continue;
             }
         }
         
         
-        if let LoginStatus::New(s) = login_state.clone() {
-            println!("signup successful");
-            let mut path = Path {
-                path: vec![(false, "/".into()), (false, "home".into())]
-            };
+        // if let LoginStatus::New(s) = login_state.clone() {
+        //     println!("signup successful");
+        //     let mut path = Path {
+        //         path: vec![(false, "/".into()), (false, "home".into())]
+        //     };
 
-            app_message = AppMessage {cmd: Cmd::Mkdir, data: vec![path.to_string(), s.0.clone()]};
-            println!("app msg{:?}", app_message);
-            println!("path {:?}", path);
-            mkdir(app_message, &mut socket, &mut aes_key,  &path);
-            continue;
-        };
-        if let LoginStatus::Failure() = login_state.clone() {
-            println!("failure");
+        //     app_message = AppMessage {cmd: Cmd::Mkdir, data: vec![path.to_string(), s.0.clone()]};
+        //     println!("app msg{:?}", app_message);
+        //     println!("path {:?}", path);
+        //     mkdir(app_message, &mut socket, &mut aes_key,  &path);
+        //     continue;
+        // };
+        if let LoginStatus::Failure = login_state.clone() {
+            println!("failure at login");
             continue;
         };
         if let LoginStatus::Success(s) = login_state.clone() {
@@ -220,10 +220,10 @@ fn new_user<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256
 
 /*
  * input_str: either the username, or "new" */
-fn login_signup<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) -> LoginStatus where S: std::io::Read, S: std::io::Write  {
+fn login<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) -> LoginStatus where S: std::io::Read, S: std::io::Write  {
 
     
-    send_encrypt(msg, socket, key);
+    send_encrypt(msg, socket, key).unwrap();
     println!("Message sent"); 
     // let response = socket.read().expect("Error reading message");
     let login_res = recv_decrypt(socket, key).unwrap();
@@ -231,23 +231,15 @@ fn login_signup<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Ae
     // println!("DEBUG: reached"); 
     // let login_res: AppMessage = serde_json::from_str(response.to_text().unwrap()).expect("Deserialize failed for login/signup response!");
     // let server_public: Cmd = serde_json::from_str(&login_res.cmd).expect("Deserialize failed for server_public!");
-    match login_res.cmd {
-        Cmd::NewUser => {
-            return LoginStatus::New((login_res.data[0].clone(), false));
-        },
-        Cmd::Login => {
-            let is_admin: bool = match login_res.data[1].as_str() {
-                "true" => true,
-                "false" => false,
-                _ => false
-            };
-            return LoginStatus::Success((login_res.data[0].clone(),is_admin));
-        },
-        Cmd::Failure => {
-            return LoginStatus::Failure();
-        },
-        _ => {todo!()}
-
+    if login_res.cmd == Cmd::Login{
+        let is_admin: bool = match login_res.data[1].as_str() {
+            "true" => true,
+            "false" => false,
+            _ => false
+        };
+        return LoginStatus::Success((login_res.data[0].clone(),is_admin));
+    } else {
+        return LoginStatus::Failure;
     }
     // user types username 
     // let username = String::from("itsnotfeas"); 
