@@ -102,7 +102,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         continue;
                     },
                     false => {
-                        let new_user_key = dao::create_user(pg_client.clone(), user_name.clone(), pass, Some(group), true).await.unwrap();
+                        let new_user_key = dao::create_user(pg_client.clone(), user_name.clone(), pass, Some(group), false).await.unwrap();
                         let path_str = msg.data.get(0).unwrap().to_string();
                         let new_dir_name = user_name.clone();
                         if handle_if_child_exists(&pg_client, &path_str, &new_dir_name, &mut ws_stream, &mut key).await {
@@ -117,7 +117,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                             id: 0,
                             name: new_dir_name.clone(),
                             path: path_str.clone()+"/"+&new_dir_name.clone(),
-                            owner: (*curr_user).to_string(),
+                            owner: user_name.clone(),
                             hash: hash_file("".to_string()),
                             parent: path_str.clone(),
                             dir: true,
