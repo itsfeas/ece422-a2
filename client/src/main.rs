@@ -204,7 +204,8 @@ fn new_user<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256
     if new_user_res.cmd == Cmd::NewUser {
         println!("signup success");
         let new_dir = new_user_res.data[0].clone();
-        create_dir_all(new_dir).unwrap(); 
+        // let full_path = 
+        create_dir_all("../FILESYSTEM/".to_string()+ &new_dir.clone()).unwrap(); 
     } else {
         return Err("failed to create new user".to_string());
     }
