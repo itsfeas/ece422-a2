@@ -46,6 +46,7 @@ pub enum Cmd {
     Mkdir,
     GetEncryptedFile,
     Mv,
+    Scan,
     NewConnection,
     NewGroup,
     NewUser,
