@@ -239,6 +239,27 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 };
                 send_app_message(&mut ws_stream, &mut key, msg).await;
             },
+            Cmd::Mv => {
+                let (old_path, old_path_str, f_node) = match get_and_check_path(msg.data[0].clone()+"/"+&msg.data[1].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let new_path = msg.data[0].clone()+"/"+&msg.data[2].clone();
+                let new_name = msg.data[2].clone();
+                let has_write_perms = have_write_perms_for_file(&pg_client,
+                    old_path_str.clone(), &curr_user).await;
+                if !has_write_perms {
+                    send_app_message(&mut ws_stream, &mut key, AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["do not have write permissions!".to_string()],
+                    }).await;
+                    continue;
+                }
+                dao::update_path(pg_client.clone(), old_path_str, new_path).await;
+                dao::update_fnode_name_if_path_is_already_updated(pg_client.clone(), new_path, new_name.clone()).await;
+                dao::remove_file_from_parent(pg_client.clone(), msg.data[0].clone(), msg.data[1].clone()).await;
+                dao::add_file_to_parent(pg_client.clone(), msg.data[0].clone(), new_name).await;
+            },
             Cmd::Touch => {
                 let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
                     Some(value) => value,
@@ -255,7 +276,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     name: new_file_name.clone(),
                     path: path_str.clone()+"/"+&new_file_name.clone(),
                     owner: (*curr_user).clone(),
-                    hash: "".to_string(),
+                    hash: hash_file("".to_string()),
                     parent: path_str.clone()[..path_str.len()-2].to_string(),
                     dir: false,
                     u: 7,
@@ -362,7 +383,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 }
                 let new_file_str = plaintext_str.to_owned()+additional_str;
                 let encrypted_file_data = encrypt_string_nononce(&mut user_key, new_file_str.clone()).unwrap();
-                let new_hash = hash_file(f_node.name.clone(), new_file_str.clone());
+                let new_hash = hash_file(new_file_str.clone());
                 let update = dao::update_hash(pg_client.clone(), path_str, f_node.name, new_hash).await;
                 let resp = match update {
                     Ok(_) => AppMessage {
@@ -654,9 +675,9 @@ async fn send_app_message(ws_stream: &mut tokio_tungstenite::WebSocketStream<Tcp
     ws_stream.send(Message::text(serde_json::to_string(&resp_encrypted).unwrap())).await.unwrap();
 }
 
-fn hash_file(file_new: String, file_data: String) -> String {
+fn hash_file(file_data: String) -> String {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(file_new.as_bytes());
+    // hasher.update(file_new.as_bytes());
     hasher.update(file_data.as_bytes());
     hasher.finalize().to_string()
 }

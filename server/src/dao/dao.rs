@@ -133,6 +133,15 @@ pub async fn add_file_to_parent(client: Arc<Mutex<Client>>, parent_path: String,
     }
 }
 
+pub async fn remove_file_from_parent(client: Arc<Mutex<Client>>, parent_path: String, f_node_name: String) -> Result<(), String>{
+    let e = client.lock().await.execute("UPDATE fnode SET children = ARRAY_REMOVE(children, $1) WHERE path=$2",
+    &[&f_node_name, &parent_path]).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to add user to group!".to_string()),
+    }
+}
+
 pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Option<FNode>, String> {
     let e = client.lock().await.query_opt("SELECT * FROM fnode WHERE path = $1", &[&path]).await;
     match e {
@@ -164,6 +173,24 @@ pub async fn change_file_perms(client: Arc<Mutex<Client>>, file_path: String, u:
     match e {
         Ok(_) => Ok(()),
         _ => Err("Failed to update file permissions!".to_string()),
+    }
+}
+
+pub async fn update_path(client: Arc<Mutex<Client>>, file_path: String, new_file_path: String) -> Result<(), String>{
+    let e = client.lock().await.execute("UPDATE fnode SET path = regexp_replace(path, '^$1', '$2', 'g') WHERE path ~ '^$1'",
+    &[&file_path, &new_file_path]).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to update path!".to_string()),
+    }
+}
+
+pub async fn update_fnode_name_if_path_is_already_updated(client: Arc<Mutex<Client>>, path: String, new_name: String) -> Result<(), String>{
+    let e = client.lock().await.execute("UPDATE fnode SET name = $2 WHERE path = $1",
+    &[&path, &new_name]).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to update f_node name!".to_string()),
     }
 }
 
