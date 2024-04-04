@@ -1,4 +1,4 @@
-use std::fs::{create_dir_all, rename};
+use std::fs::{create_dir_all, rename, self};
 use std::io; 
 use std::{io::Error, str::from_utf8, fs::File, fs::create_dir,  io::stdout, ops::Neg, io::Read, io::Write}; 
 use log::Log;
@@ -231,6 +231,32 @@ fn login_signup<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Ae
     // println!("DEBUG: reached"); 
     // let login_res: AppMessage = serde_json::from_str(response.to_text().unwrap()).expect("Deserialize failed for login/signup response!");
     // let server_public: Cmd = serde_json::from_str(&login_res.cmd).expect("Deserialize failed for server_public!");
+    println!("LOGIN RES {:?}", login_res);
+    let owned_paths: Vec<(String, String)> = serde_json::from_str(login_res.data[2].clone().as_str()).unwrap(); 
+    let path_contents = scan(&owned_paths);
+    
+
+    let mut corrupt_count = 0; 
+    for x in path_contents {
+
+        let scan_msg = AppMessage {
+            cmd: Cmd::Scan, 
+            data: vec![x.0.clone(), x.1.clone()] 
+        }; 
+        
+        send_encrypt(&scan_msg, socket, key).unwrap(); 
+        let recv_message = recv_decrypt(socket, key).unwrap(); 
+        match recv_message.cmd {
+            Cmd::Scan => {continue;},   
+            Cmd::Failure => {corrupt_count += 1; }, 
+            _ => {panic!("Invalid message received when running Scan")}
+        } 
+    }
+
+    if corrupt_count > 0 {
+        println!("You have {} corrupt files!", corrupt_count); 
+    }
+
     match login_res.cmd {
         Cmd::NewUser => {
             return LoginStatus::New((login_res.data[0].clone(), false));
@@ -771,4 +797,24 @@ fn convert_path_to_enc<S>(filename: &String,
         })
     }
     Err(())
+}
+
+
+fn scan(paths: &Vec<(String, String)>) -> Vec<(String, String)> {
+    
+    let mut content: Vec<(String, String)> = vec![]; 
+    for x in paths {
+        let enc_path: String = std::path::Path::new("../FILESYSTEM").join(x.0.clone()).to_str().unwrap().into();  
+        let md = fs::metadata(enc_path.clone()).unwrap(); 
+        if md.is_dir() {
+            content.push((x.1.clone(), "".into())); 
+        } else if md.is_file() {
+            let file_contents = fs::read_to_string(enc_path.clone()).unwrap(); 
+            content.push((x.1.clone(), file_contents)); 
+        } else {
+            panic!("{} ({}) is not dir and is not file", enc_path.clone(), x.1); 
+        }
+
+    }
+    content
 }
