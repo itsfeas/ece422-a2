@@ -744,7 +744,16 @@ fn scan(paths: &Vec<(String, String)>) -> Vec<(String, String)> {
     
     let mut content: Vec<(String, String)> = vec![]; 
     for x in paths {
-        let enc_path: String = std::path::Path::new("../FILESYSTEM").join(x.0.clone()).to_str().unwrap().into();  
+        let mut reg_path = x.0.clone(); 
+        if reg_path.starts_with("/") {
+            reg_path.remove(0); 
+        }
+        let enc_path: String = std::path::Path::new("../FILESYSTEM").join(reg_path).to_str().unwrap().to_string();  
+        println!("ENCODED PATH {}", enc_path); 
+        if ! std::path::Path::new(enc_path.as_str()).exists() {
+            content.push((x.1.clone(), "".into())); 
+            continue; 
+        }
         let md = fs::metadata(enc_path.clone()).unwrap(); 
         if md.is_dir() {
             content.push((x.1.clone(), "".into())); 
