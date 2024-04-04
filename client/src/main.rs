@@ -134,12 +134,8 @@ fn main() -> Result<(), Error> {
                         cat(&mut app_message, &mut socket, &mut aes_key,  &rel_current_path);
                     },
                     Cmd::Chmod => {
-                        if (s.1.clone()) {
-                            let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
-                            chmod(&mut app_message, &mut socket, &mut aes_key,  &rel_current_path);
-                        } else {
-                            println!("this command is available to admin users only");
-                        }
+                        let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
+                        chmod(&mut app_message, &mut socket, &mut aes_key,  &rel_current_path);
                     },
                     Cmd::NewGroup => {
                         if (s.1.clone()) {
