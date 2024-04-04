@@ -368,7 +368,8 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 if handle_if_child_exists(&pg_client, &path_str, new_file_name, &mut ws_stream, &mut key).await {
                     continue;
                 }
-                let mut user_key = Arc::new(get_key_for_file(&pg_client, msg.data[0].clone()+"/"+&msg.data[1].clone(), &curr_user).await);
+                let curr_user_key_arr: Key<Aes256Gcm> = (*curr_user_key).into();
+                let mut user_key = Arc::new(Some(curr_user_key_arr));
                 let encrypted_file = encrypt_string_nononce(&mut user_key, new_file_name.clone()).expect("could not encrypt file name!");
                 let new_file = FNode {
                     id: -1,
@@ -475,13 +476,13 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
 
                 let additional_str = msg.data.get(2).unwrap();
                 let file_data = msg.data.get(3).unwrap();
-                let mut user_key = Arc::new(get_key_for_file(&pg_client.clone(), msg.data[0].clone()+"/"+&msg.data[1].clone(), &curr_user).await);
+                let mut author_key = Arc::new(get_key_for_file(&pg_client.clone(), msg.data[0].clone()+"/"+&msg.data[1].clone(), &curr_user).await);
                 let mut plaintext_str = "".to_string();
                 if !file_data.is_empty() {
-                    plaintext_str += &unencrypt_string_nononce(&mut user_key, file_data).unwrap();
+                    plaintext_str += &unencrypt_string_nononce(&mut author_key, file_data).unwrap();
                 }
                 let new_file_str = plaintext_str.to_owned()+additional_str;
-                let encrypted_file_data = encrypt_string_nononce(&mut user_key, new_file_str.clone()).unwrap();
+                let encrypted_file_data = encrypt_string_nononce(&mut author_key, new_file_str.clone()).unwrap();
                 let new_hash = hash_file(encrypted_file_data.clone());
                 let update = dao::update_hash(pg_client.clone(), path_str, f_node.name, new_hash).await;
                 let resp = match update {
@@ -819,7 +820,10 @@ async fn get_key_for_file(pg_client: &Arc<Mutex<Client>>, path_str: String, curr
     let f_node_opt = dao::get_f_node(pg_client.clone(), path_str.clone()).await.unwrap();
     let f_node = match f_node_opt {
         Some(f) => f,
-        None => return None
+        None => {
+            println!("can't find owner for file {}", path_str.clone());
+            return None
+        }
     };
     println!("key_path_str {}, p0", path_str.clone());
     let curr_user = dao::get_user(pg_client.clone(), (**curr_user_name).clone()).await.unwrap().unwrap();
