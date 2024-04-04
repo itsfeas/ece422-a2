@@ -166,9 +166,18 @@ fn main() -> Result<(), Error> {
                     },
                     Cmd::NewUser => {
                         if (s.1.clone()) {
-                            let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
-                            app_message.data = app_message.data.split_off(1);
-                            login_signup(&app_message, &mut socket, &mut aes_key);
+                            new_user(&app_message, &mut socket, &mut aes_key).unwrap();
+                            // let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
+                            // app_message.data = app_message.data.split_off(1);
+                            // login_state = login_signup(&app_message, &mut socket, &mut aes_key);
+                            // if let LoginStatus::New(new_s) = login_state.clone() {
+                            //     println!("signup successful");
+                            //     let mut path = Path {
+                            //         path: vec![(false, "/".into()), (false, "home".into())]
+                            //     };
+                            //     app_message = AppMessage {cmd: Cmd::Mkdir, data: vec![path.to_string(), new_s.0.clone()]};
+                            //     mkdir(app_message, &mut socket, &mut aes_key,  &rel_current_path);
+                            // }
                         } else {
                             println!("this command is available to admin users only");
                         }
@@ -186,6 +195,21 @@ fn main() -> Result<(), Error> {
 
     }
     // Ok(())
+}
+
+fn new_user<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm>) -> Result<(), String> where S: std::io::Read, S: std::io::Write  {
+    send_encrypt(msg, socket, key).unwrap();
+    let new_user_res = recv_decrypt(socket, key).unwrap();
+    
+    if new_user_res.cmd == Cmd::NewUser {
+        println!("signup success");
+        let new_dir = new_user_res.data[0].clone();
+        create_dir_all(new_dir).unwrap(); 
+    } else {
+        return Err("failed to create new user".to_string());
+    }
+
+    Ok(())
 }
 
 // fn setup_connection<S>(socket: &mut WebSocket<S>) where S: std::io::Read, S: std::io::Write {
