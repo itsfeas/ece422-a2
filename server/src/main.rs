@@ -102,13 +102,37 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         continue;
                     },
                     false => {
-                        curr_user_key = Arc::new(dao::create_user(pg_client.clone(), user_name.clone(), pass, Some(group), true).await.unwrap());
+                        let new_user_key = dao::create_user(pg_client.clone(), user_name.clone(), pass, Some(group), true).await.unwrap();
+                        let path_str = msg.data.get(0).unwrap().to_string();
+                        let new_dir_name = user_name.clone();
+                        if handle_if_child_exists(&pg_client, &path_str, &new_dir_name, &mut ws_stream, &mut key).await {
+                            let response = AppMessage {
+                                cmd: Cmd::Failure,
+                                data: vec!["please use another user name!".to_string().clone()]
+                            };
+                        }
+                        let mut user_key = Arc::new(Some(new_user_key));
+                        let encrypted_file_name = encrypt_string_nononce(&mut user_key, new_dir_name.clone()).unwrap();
+                        let new_dir_f_node = FNode {
+                            id: 0,
+                            name: new_dir_name.clone(),
+                            path: path_str.clone()+"/"+&new_dir_name.clone(),
+                            owner: (*curr_user).to_string(),
+                            hash: hash_file("".to_string()),
+                            parent: path_str.clone(),
+                            dir: true,
+                            u: 7,
+                            g: 0,
+                            o: 0,
+                            children: vec![],
+                            encrypted_name: encrypted_file_name.clone()
+                        };
+                        let update = dao::add_file(pg_client.clone(), new_dir_f_node).await.unwrap();
+
                         let response = AppMessage {
                             cmd: Cmd::NewUser,
-                            data: vec![user_name.clone()]
+                            data: vec!["/home/".to_string()+&encrypted_file_name.clone()]
                         };
-                        authenticated = true;
-                        curr_user = Arc::new(user_name.clone());
                         send_app_message(&mut ws_stream, &mut key, response).await;
                         continue;
                     }
@@ -192,6 +216,27 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 };
                 send_app_message(&mut ws_stream, &mut key, msg).await;
                 authenticated = res_auth;
+            },
+            Cmd::Scan => {
+                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone()+"/"+&msg.data[1].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let hash_existing = f_node.hash;
+                let hash_new = hash_file(msg.data[2].clone());
+                let msg = if hash_new.eq(&hash_existing) {
+                    AppMessage {
+                        cmd: Cmd::Scan,
+                        data: vec!["failed to login!".to_string()],
+                    }
+                } else {
+                    AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["integrity of file compromised!".to_string()],
+                    }
+                };
+                send_app_message(&mut ws_stream, &mut key, msg).await;
+                continue;
             },
             Cmd::Cd => {
                 let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
@@ -435,7 +480,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 }
                 let new_file_str = plaintext_str.to_owned()+additional_str;
                 let encrypted_file_data = encrypt_string_nononce(&mut user_key, new_file_str.clone()).unwrap();
-                let new_hash = hash_file(new_file_str.clone());
+                let new_hash = hash_file(encrypted_file_data.clone());
                 let update = dao::update_hash(pg_client.clone(), path_str, f_node.name, new_hash).await;
                 let resp = match update {
                     Ok(_) => AppMessage {
