@@ -1,4 +1,4 @@
-use std::fs::create_dir_all;
+use std::fs::{create_dir_all, rename};
 use std::io; 
 use std::{io::Error, str::from_utf8, fs::File, fs::create_dir,  io::stdout, ops::Neg, io::Read, io::Write}; 
 use log::Log;
@@ -64,7 +64,7 @@ fn main() -> Result<(), Error> {
 
         let mut login_state;
         match app_message.cmd {
-            Cmd::Login | Cmd::NewUser => {
+            Cmd::Login => {
                 login_state = login_signup(&app_message, &mut socket, &mut aes_key.clone());  
             },
             _ => {
@@ -81,6 +81,8 @@ fn main() -> Result<(), Error> {
             };
 
             app_message = AppMessage {cmd: Cmd::Mkdir, data: vec![path.to_string(), s.0.clone()]};
+            println!("app msg{:?}", app_message);
+            println!("path {:?}", path);
             mkdir(app_message, &mut socket, &mut aes_key,  &path);
             continue;
         };
@@ -137,13 +139,39 @@ fn main() -> Result<(), Error> {
                         ls(&mut socket, &mut aes_key, &path);
                     },
                     Cmd::Pwd => {},
-                    Cmd::Mv => {},
+                    Cmd::Mv => {
+                        let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
+                        mv(&mut app_message, &mut socket, &mut aes_key,  &rel_current_path);
+                    },
                     Cmd::Cat => {
                         let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
                         cat(&mut app_message, &mut socket, &mut aes_key,  &rel_current_path);
                     },
-                    Cmd::Chmod => {},
-                    Cmd::NewGroup => {},
+                    Cmd::Chmod => {
+                        if (s.1.clone()) {
+                            let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
+                            chmod(&mut app_message, &mut socket, &mut aes_key,  &rel_current_path);
+                        } else {
+                            println!("this command is available to admin users only");
+                        }
+                    },
+                    Cmd::NewGroup => {
+                        if (s.1.clone()) {
+                            let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
+                            new_group(&mut app_message, &mut socket, &mut aes_key,  &rel_current_path);
+                        } else {
+                            println!("this command is available to admin users only");
+                        }
+
+                    },
+                    Cmd::NewUser => {
+                        if (s.1.clone()) {
+                            let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
+                            login_signup(&app_message, &mut socket, &mut aes_key);
+                        } else {
+                            println!("this command is available to admin users only");
+                        }
+                    }
                     
                     _ => {},
                 };
@@ -467,6 +495,38 @@ fn cat<S>(msg: &mut AppMessage,
     println!("{}", unencrypted_data);
     Ok(())
 }
+
+fn mv<S>(msg: &mut AppMessage,
+    socket: &mut WebSocket<S>, 
+    encryption_key: &mut Key<Aes256Gcm>,
+    current_path: &Path
+ ) -> Result<(), String> where S:std::io::Read, S:std::io::Write {
+    send_encrypt(msg, socket, encryption_key).unwrap();
+    let unencrypted_response = recv_decrypt(socket, encryption_key).unwrap();
+    let old_path = unencrypted_response.data[0].clone();
+    let new_path = unencrypted_response.data[1].clone();
+    println!("attempting to rename {} to {}", old_path, new_path);
+    rename(old_path, new_path).unwrap();
+    Ok(())
+ }
+
+ fn chmod<S>(msg: &mut AppMessage,
+    socket: &mut WebSocket<S>, 
+    encryption_key: &mut Key<Aes256Gcm>,
+    current_path: &Path
+ ) -> Result<(), String> where S:std::io::Read, S:std::io::Write {
+    send_encrypt(msg, socket, encryption_key).unwrap();
+    Ok(())
+ }
+
+ fn new_group<S>(msg: &mut AppMessage,
+    socket: &mut WebSocket<S>, 
+    encryption_key: &mut Key<Aes256Gcm>,
+    current_path: &Path
+ ) -> Result<(), String> where S:std::io::Read, S:std::io::Write {
+    send_encrypt(msg, socket, encryption_key).unwrap();
+    Ok(())
+ }
 
 
 
