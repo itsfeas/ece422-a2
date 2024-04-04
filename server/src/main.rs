@@ -102,13 +102,37 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         continue;
                     },
                     false => {
-                        curr_user_key = Arc::new(dao::create_user(pg_client.clone(), user_name.clone(), pass, Some(group), true).await.unwrap());
+                        let new_user_key = dao::create_user(pg_client.clone(), user_name.clone(), pass, Some(group), true).await.unwrap();
+                        let path_str = msg.data.get(0).unwrap().to_string();
+                        let new_dir_name = user_name.clone();
+                        if handle_if_child_exists(&pg_client, &path_str, &new_dir_name, &mut ws_stream, &mut key).await {
+                            let response = AppMessage {
+                                cmd: Cmd::Failure,
+                                data: vec!["please use another user name!".to_string().clone()]
+                            };
+                        }
+                        let mut user_key = Arc::new(Some(new_user_key));
+                        let encrypted_file_name = encrypt_string_nononce(&mut user_key, new_dir_name.clone()).unwrap();
+                        let new_dir_f_node = FNode {
+                            id: 0,
+                            name: new_dir_name.clone(),
+                            path: path_str.clone()+"/"+&new_dir_name.clone(),
+                            owner: (*curr_user).to_string(),
+                            hash: hash_file("".to_string()),
+                            parent: path_str.clone(),
+                            dir: true,
+                            u: 7,
+                            g: 0,
+                            o: 0,
+                            children: vec![],
+                            encrypted_name: encrypted_file_name.clone()
+                        };
+                        let update = dao::add_file(pg_client.clone(), new_dir_f_node).await.unwrap();
+
                         let response = AppMessage {
                             cmd: Cmd::NewUser,
-                            data: vec![user_name.clone()]
+                            data: vec!["/home/".to_string()+&encrypted_file_name.clone()]
                         };
-                        authenticated = true;
-                        curr_user = Arc::new(user_name.clone());
                         send_app_message(&mut ws_stream, &mut key, response).await;
                         continue;
                     }
