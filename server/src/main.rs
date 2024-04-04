@@ -220,12 +220,12 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 authenticated = res_auth;
             },
             Cmd::Scan => {
-                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone()+"/"+&msg.data[1].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
                     Some(value) => value,
                     None => continue,
                 };
                 let hash_existing = f_node.hash;
-                let hash_new = hash_file(msg.data[2].clone());
+                let hash_new = hash_file(msg.data[1].clone());
                 let msg = if hash_new.eq(&hash_existing) {
                     AppMessage {
                         cmd: Cmd::Scan,
@@ -815,26 +815,32 @@ fn get_user_key_from_user(user: &User) -> Option<Key<Aes256Gcm>> {
 
 
 async fn get_key_for_file(pg_client: &Arc<Mutex<Client>>, path_str: String, curr_user_name: &Arc<String>) -> Option<Key<Aes256Gcm>> {
-    println!("get key for file {}", path_str);
+    println!("get key for file {} for user {}", path_str.clone(), curr_user_name.clone());
     let f_node_opt = dao::get_f_node(pg_client.clone(), path_str.clone()).await.unwrap();
     let f_node = match f_node_opt {
         Some(f) => f,
         None => return None
     };
+    println!("key_path_str {}, p0", path_str.clone());
     let curr_user = dao::get_user(pg_client.clone(), (**curr_user_name).clone()).await.unwrap().unwrap();
     let owner_user_name = f_node.owner;
     if curr_user_name.is_empty() {
+        println!("key_path_str {}, p1", path_str.clone());
         return None;
     }
     let owner_user = dao::get_user(pg_client.clone(), owner_user_name.clone()).await.unwrap().unwrap();
     if (f_node.o & 0b100)>0 {
         // get f_node owner key
+        println!("key_path_str {}, p2", path_str.clone());
         return get_user_key_from_user(&owner_user);
     } else if (f_node.u & 0b100)>0 && owner_user_name.eq(&(**curr_user_name).clone()) {
+        println!("key_path_str {}, p3", path_str.clone());
         return get_user_key_from_user(&curr_user);
     } else if curr_user.group_name.is_none() || owner_user.group_name.is_none() {
+        println!("key_path_str {}, p4", path_str.clone());
         return None;
     } else if (f_node.g & 0b100)>0 && curr_user.group_name.unwrap().eq(&owner_user.group_name.clone().unwrap()) {
+        println!("key_path_str {}, p5", path_str.clone());
         return get_user_key_from_user(&owner_user);
     }
     None
