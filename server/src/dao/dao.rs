@@ -1,6 +1,6 @@
 use std::{fmt::format, sync::Arc};
 
-use aes_gcm::{Aes256Gcm, KeyInit};
+use aes_gcm::{Aes256Gcm, Key, KeyInit};
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
 use argon2::{
@@ -12,8 +12,8 @@ use argon2::{
 use model::model::{FNode, User};
 
 pub async fn add_file(client: Arc<Mutex<Client>>, file: FNode) -> Result<String, String> {
-    let e = client.lock().await.execute("INSERT INTO fnode (name, path, owner, hash, parent, dir, u, g, o, children) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-    &[&file.name, &file.path, &file.owner, &file.hash, &file.parent, &file.dir, &file.u, &file.g, &file.o, &file.children]).await;
+    let e = client.lock().await.execute("INSERT INTO fnode (name, path, owner, hash, parent, dir, u, g, o, children, encrypted_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+    &[&file.name, &file.path, &file.owner, &file.hash, &file.parent, &file.dir, &file.u, &file.g, &file.o, &file.children, &file.encrypted_name]).await;
     match e {
         Ok(_) => Ok(file.name),
         Err(err) => Err(format!("{}",err)),
@@ -75,27 +75,27 @@ pub async fn auth_user(client: Arc<Mutex<Client>>, user_name: String, pass: Stri
 }
 
 //used https://docs.rs/argon2/latest/argon2/
-pub async fn create_user(client: Arc<Mutex<Client>>, user_name: String, pass: String, group: Option<String>, is_admin: bool) -> Result<String, String>{
+pub async fn create_user(client: Arc<Mutex<Client>>, user_name: String, pass: String, group: Option<String>, is_admin: bool) -> Result<Key<Aes256Gcm>, String>{
     let salt = match salt_pass(pass){
         Ok(salt) => salt,
         Err(_) => return Err(format!("couldn't hash user pass while creating user!")),
     };
     let key = key_gen().expect("could not serialize symmetric key!");
     let e = match group {
-        Some(_) => client.lock().await.execute("INSERT INTO users (user_name, group_id, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
+        Some(_) => client.lock().await.execute("INSERT INTO users (user_name, group_name, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
     &[&user_name, &group, &salt, &key, &is_admin]).await,
         None => client.lock().await.execute("INSERT INTO users (user_name, salt, key, is_admin) VALUES ($1, $2, $3, $4)",
     &[&user_name, &salt, &key, &is_admin]).await,
     };
     match e {
-        Ok(_) => Ok(user_name),
+        Ok(_) => Ok(serde_json::from_str::<[u8; 32]>(&key).unwrap().into()),
         Err(e) => Err(format!("couldn't create user! {}", e)),
     }
 }
 
 pub async fn create_group(client: Arc<Mutex<Client>>, group_name: String) -> Result<String, String>{
-    let e = client.lock().await.execute("INSERT INTO groups (name, users) VALUES ($1, $2)",
-    &[&group_name, &Vec::<i64>::new()]).await;
+    let e = client.lock().await.execute("INSERT INTO groups (g_name, users) VALUES ($1, $2)",
+    &[&group_name, &Vec::<String>::new()]).await;
     match e {
         Ok(_) => Ok(group_name),
         Err(_) => Err(format!("couldn't create group!")),
@@ -103,9 +103,9 @@ pub async fn create_group(client: Arc<Mutex<Client>>, group_name: String) -> Res
 }
 
 pub async fn add_user_to_group(client: Arc<Mutex<Client>>, user_name: String, group_name: String) -> Result<String, String>{
-    let e = client.lock().await.execute("UPDATE groups SET users = ARRAY_APPEND(users, $1) WHERE name=$2",
+    let e = client.lock().await.execute("UPDATE groups SET users = ARRAY_APPEND(users, $1) WHERE g_name=$2",
     &[&user_name, &group_name]).await;
-    let e1 = client.lock().await.execute("UPDATE users SET group_id=$1 WHERE user_name=$2",
+    let e1 = client.lock().await.execute("UPDATE users SET group_name=$1 WHERE user_name=$2",
     &[&group_name, &user_name]).await;
     match (e, e1) {
         (Ok(_), Ok(_)) => Ok(group_name),
@@ -114,7 +114,7 @@ pub async fn add_user_to_group(client: Arc<Mutex<Client>>, user_name: String, gr
 }
 
 pub async fn remove_user_from_group(client: Arc<Mutex<Client>>, user_name: String, group_name: String) -> Result<String, String>{
-    let e = client.lock().await.execute("UPDATE groups SET users = array_remove(users, $1) WHERE name=$2",
+    let e = client.lock().await.execute("UPDATE groups SET users = array_remove(users, $1) WHERE g_name=$2",
     &[&user_name, &group_name]).await;
     let e1 = client.lock().await.execute("UPDATE users SET group='' WHERE user_name=$2",
     &[&group_name, &user_name]).await;
@@ -127,6 +127,15 @@ pub async fn remove_user_from_group(client: Arc<Mutex<Client>>, user_name: Strin
 pub async fn add_file_to_parent(client: Arc<Mutex<Client>>, parent_path: String, new_f_node_name: String) -> Result<(), String>{
     let e = client.lock().await.execute("UPDATE fnode SET children = ARRAY_APPEND(children, $1) WHERE path=$2",
     &[&new_f_node_name, &parent_path]).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to add user to group!".to_string()),
+    }
+}
+
+pub async fn remove_file_from_parent(client: Arc<Mutex<Client>>, parent_path: String, f_node_name: String) -> Result<(), String>{
+    let e = client.lock().await.execute("UPDATE fnode SET children = ARRAY_REMOVE(children, $1) WHERE path=$2",
+    &[&f_node_name, &parent_path]).await;
     match e {
         Ok(_) => Ok(()),
         _ => Err("Failed to add user to group!".to_string()),
@@ -149,11 +158,49 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
                 g: row.get(8),
                 o: row.get(9),
                 children: row.get(10),
+                encrypted_name: row.get(11),
             };
             Ok(Some(fnode))
         }
         Ok(None) => Ok(None),
         Err(_) => Err(format!("failed to get fnode!")),
+    }
+}
+
+pub async fn change_file_perms(client: Arc<Mutex<Client>>, file_path: String, u: i16, g: i16, o: i16) -> Result<(), String>{
+    let e = client.lock().await.execute("UPDATE fnode SET u=$2, g=$3, o=$4 WHERE path=$1",
+    &[&file_path, &u, &g, &o]).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to update file permissions!".to_string()),
+    }
+}
+
+pub async fn update_path(client: Arc<Mutex<Client>>, file_path: String, new_file_path: String) -> Result<(), String>{
+    let e = client.lock().await.execute("UPDATE fnode SET path = regexp_replace(path, $1, $2, 'g') WHERE path ~ $3",
+        &[&format!("^{}", file_path), &new_file_path, &format!("^{}", file_path)]
+    ).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to update path!".to_string()),
+    }
+}
+
+pub async fn update_fnode_name_if_path_is_already_updated(client: Arc<Mutex<Client>>, path: String, new_name: String) -> Result<(), String>{
+    let e = client.lock().await.execute("UPDATE fnode SET name = $2 WHERE path = $1",
+    &[&path, &new_name]).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to update f_node name!".to_string()),
+    }
+}
+
+pub async fn update_fnode_enc_name(client: Arc<Mutex<Client>>, path: String, new_enc_name: String) -> Result<(), String>{
+    let e = client.lock().await.execute("UPDATE fnode SET encrypted_name = $2 WHERE path = $1",
+    &[&path, &new_enc_name]).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to update f_node name!".to_string()),
     }
 }
 
@@ -163,7 +210,7 @@ pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<O
         Ok(Some(row)) => Ok(Some(User{
             id: row.get("id"),
             user_name: row.get("user_name"),
-            group_id: row.try_get("group_id").unwrap_or(None),
+            group_name: row.try_get("group_name").unwrap_or(None),
             key: row.get("key"),
             salt: row.get("salt"),
             is_admin: row.get("is_admin"),
@@ -174,7 +221,7 @@ pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<O
 }
 
 pub async fn get_group(client: Arc<Mutex<Client>>, group_name: String) -> Result<Option<String>, String> {
-    let e = client.lock().await.query_opt("SELECT name FROM groups WHERE name = $1", &[&group_name]).await;
+    let e = client.lock().await.query_opt("SELECT g_name FROM groups WHERE g_name = $1", &[&group_name]).await;
     match e {
         Ok(Some(_)) => Ok(Some(group_name)),
         Ok(None) => Ok(None),

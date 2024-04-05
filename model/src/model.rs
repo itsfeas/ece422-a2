@@ -15,13 +15,14 @@ pub struct FNode {
     
     //if directory
     pub children: Vec<String>,
+    pub encrypted_name: String,
 }
 
 #[derive()]
 pub struct User {
     pub id: i64,
     pub user_name: String,
-    pub group_id: Option<i64>,
+    pub group_name: Option<String>,
     pub key: String,
     pub salt: String,
     pub is_admin: bool
@@ -32,7 +33,7 @@ pub struct User {
 pub struct Group {
     pub id: i64,
     pub users: Vec<String>,
-    pub name: String,
+    pub g_name: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -45,6 +46,7 @@ pub enum Cmd {
     Mkdir,
     GetEncryptedFile,
     Mv,
+    Scan,
     NewConnection,
     NewGroup,
     NewUser,
