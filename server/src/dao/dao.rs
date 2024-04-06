@@ -207,8 +207,14 @@ pub async fn update_fnode_enc_name(client: Arc<Mutex<Client>>, path: String, new
 
 pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<Option<User>, String> {
     let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
-    let e = client.lock().await.query_opt("SELECT id, user_name, group_name, pgp_sym_decrypt(key ::bytea, $2 ::text) AS key, salt, is_admin FROM users WHERE user_name = $1",
-     &[&user_name, &db_pass]).await;
+    let e = if user_name == "admin" {
+        client.lock().await.query_opt("SELECT id, user_name, group_name, pgp_sym_decrypt(key ::bytea, 'DOES_NOT_MATTER' ::text) AS key, salt, is_admin FROM users WHERE user_name = $1",
+     &[&user_name]).await
+    } else {
+        // does not matter if admin enryption key is available since they don't have file interactions
+        client.lock().await.query_opt("SELECT id, user_name, group_name, pgp_sym_decrypt(key ::bytea, $2 ::text) AS key, salt, is_admin FROM users WHERE user_name = $1",
+     &[&user_name, &db_pass]).await
+    };
     match e {
         Ok(Some(row)) => Ok(Some(User{
             id: row.get("id"),
