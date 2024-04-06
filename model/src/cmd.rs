@@ -15,12 +15,15 @@ impl MapStr for Cmd {
             "ls" => Ok(Cmd::Ls),
             "mkdir" => Ok(Cmd::Mkdir),
             "mv" => Ok(Cmd::Mv),
+            "chmod" => Ok(Cmd::Chmod),
+            "scan" => Ok(Cmd::Scan),
             "new_connection" => Ok(Cmd::NewConnection),
             "new_user" => Ok(Cmd::NewUser),
             "new_group" => Ok(Cmd::NewGroup),
             "failure" => Ok(Cmd::Failure),
             "pwd" => Ok(Cmd::Pwd),
             "touch" => Ok(Cmd::Touch),
+            "logout" => Ok(Cmd::Logout),
             _ => Err(()),
         }
     }

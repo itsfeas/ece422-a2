@@ -80,8 +80,18 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
             Cmd::NewUser => {
                 let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
                 let pass = msg.data.get(1).expect("password not supplied!").to_owned();
+                let group = msg.data.get(2).expect("group not supplied!").to_owned();
                 let does_user_exist = dao::get_user(pg_client.clone(), user_name.clone()).await
                     .expect("could not perform get_user query!");
+                let does_group_exist = dao::get_group(pg_client.clone(), group.clone()).await
+                    .expect("could not perform get_group query!").is_some();
+                if !does_group_exist {
+                    send_app_message(&mut ws_stream, &mut key, AppMessage {
+                            cmd: Cmd::Failure,
+                            data: vec!["group does not exist! you can't make an account!".to_string()]
+                        }).await;
+                    continue;
+                }
                 match does_user_exist.is_some() {
                     true => {
                         let response = AppMessage {
@@ -92,13 +102,39 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         continue;
                     },
                     false => {
-                        curr_user_key = Arc::new(dao::create_user(pg_client.clone(), user_name.clone(), pass, None, true).await.unwrap());
+                        let new_user_key = dao::create_user(pg_client.clone(), user_name.clone(), pass, Some(group), false).await.unwrap();
+                        let path_str = msg.data.get(0).unwrap().to_string();
+                        let new_dir_name = user_name.clone();
+                        if handle_if_child_exists(&pg_client, &path_str, &new_dir_name, &mut ws_stream, &mut key).await {
+                            let response = AppMessage {
+                                cmd: Cmd::Failure,
+                                data: vec!["please use another user name!".to_string().clone()]
+                            };
+                            continue;
+                        }
+                        let mut user_key = Arc::new(Some(new_user_key));
+                        let encrypted_file_name = encrypt_string_nononce(&mut user_key, new_dir_name.clone()).unwrap();
+                        let new_dir_f_node = FNode {
+                            id: 0,
+                            name: new_dir_name.clone(),
+                            path: "/home/".to_string()+&new_dir_name.clone(),
+                            owner: user_name.clone(),
+                            hash: hash_file("".to_string()),
+                            parent: path_str.clone(),
+                            dir: true,
+                            u: 7,
+                            g: 0,
+                            o: 0,
+                            children: vec![],
+                            encrypted_name: encrypted_file_name.clone()
+                        };
+                        let update = dao::add_file(pg_client.clone(), new_dir_f_node).await.unwrap();
+                        dao::add_file_to_parent(pg_client.clone(), "/home".to_string(), new_dir_name.clone()).await;
+
                         let response = AppMessage {
                             cmd: Cmd::NewUser,
-                            data: vec![user_name.clone()]
+                            data: vec!["/home/".to_string()+&encrypted_file_name.clone()]
                         };
-                        authenticated = true;
-                        curr_user = Arc::new(user_name.clone());
                         send_app_message(&mut ws_stream, &mut key, response).await;
                         continue;
                     }
@@ -127,8 +163,26 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     None => continue,
                 };
                 let ugo = msg.data[2].clone();
-                let perms: Vec<i16> = ugo.split("").into_iter().map(|s| s.parse::<i16>().unwrap()).collect();
-                println!("new perms {:?}", perms);
+                println!("new perms {:?}", ugo.split("").clone().into_iter().collect::<Vec<&str>>());
+                let perms: Vec<i16> = ugo.split("").into_iter()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.parse::<i16>().unwrap())
+                    .collect();
+                let has_write_perms = have_write_perms_for_file(&pg_client,
+                    path_str.clone(), &curr_user).await;
+                if !has_write_perms {
+                    send_app_message(&mut ws_stream, &mut key, AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["do not have write permissions!".to_string()],
+                    }).await;
+                    continue;
+                }
+                dao::change_file_perms(pg_client.clone(), path_str.clone(), perms[0], perms[1], perms[2]).await;
+                send_app_message(&mut ws_stream, &mut key, AppMessage {
+                    cmd: Cmd::Chmod,
+                    data: vec![]
+                }).await;
+                continue;
             }
             Cmd::Login => {
                 let user_name = msg.data.get(0).expect("username not supplied!").to_owned();
@@ -141,25 +195,52 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         curr_user = Arc::new(user_name.clone());
                         let u_unwrapped = u.unwrap();
                         curr_user_key = Arc::new(serde_json::from_str::<[u8; 32]>(&u_unwrapped.key).unwrap().into());
-                        let mut owned_paths: Vec<String> = vec![]; 
-                        let homenode = get_f_node(pg_client.clone(), String::from("/home/") + user_name.clone().as_str()).await.unwrap().unwrap(); 
-                        let root_f_node = "/home".to_string();
-                        search_tree_for_user(user_name.clone(), &homenode, &mut owned_paths, pg_client.clone(), root_f_node).await; 
-                        println!("PATHS OWNED BY USER: {:?}", owned_paths); 
+                        let mut owned_paths: Vec<(String, String)> = vec![]; 
+                        let homenode_opt = get_f_node(pg_client.clone(), String::from("/home/") + user_name.clone().as_str()).await.unwrap();
+                        // we don't search if the user doesn't own a folder, such as precreated users
+                        if homenode_opt.is_some() {
+                            let homenode = homenode_opt.unwrap();
+                            let root_f_node = "/home".to_string();
+                            search_tree_for_user(user_name.clone(), &homenode, &mut owned_paths, pg_client.clone(), root_f_node).await; 
+                            println!("PATHS OWNED BY USER: {:?}", owned_paths); 
+                        };
                         AppMessage {
                             cmd: Cmd::Login,
                             data: vec![user_name.clone(), u_unwrapped.is_admin.to_string(), serde_json::to_string(&owned_paths).unwrap()],
                         }
                     },
                     ((true, Err(_)) | (false, _)) => {
+                        let vec: Vec<String> = vec![];
                         AppMessage {
                             cmd: Cmd::Failure,
-                            data: vec!["failed to login!".to_string()],
+                            data: vec!["failed to login!".to_string(), "".to_string(), serde_json::to_string(&vec).unwrap()],
                         }
                     },
                 };
                 send_app_message(&mut ws_stream, &mut key, msg).await;
                 authenticated = res_auth;
+            },
+            Cmd::Scan => {
+                // don't run scan for directories
+                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let hash_existing = f_node.hash;
+                let hash_new = hash_file(msg.data[1].clone());
+                let msg = if hash_new.eq(&hash_existing) {
+                    AppMessage {
+                        cmd: Cmd::Scan,
+                        data: vec![format!("failed to ensure integrity of {}!", path_str)],
+                    }
+                } else {
+                    AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["integrity of file compromised!".to_string()],
+                    }
+                };
+                send_app_message(&mut ws_stream, &mut key, msg).await;
+                continue;
             },
             Cmd::Cd => {
                 let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
@@ -197,6 +278,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     }
                 };
                 send_app_message(&mut ws_stream, &mut key, resp).await;
+                continue;
             },
             Cmd::Ls => {
                 let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone(), &pg_client, &mut ws_stream, &mut key).await {
@@ -238,6 +320,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     data: children,
                 };
                 send_app_message(&mut ws_stream, &mut key, msg).await;
+                continue;
             },
             Cmd::Mv => {
                 let (old_path, old_path_str, f_node) = match get_and_check_path(msg.data[0].clone()+"/"+&msg.data[1].clone(), &pg_client, &mut ws_stream, &mut key).await {
@@ -256,9 +339,10 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     }).await;
                     continue;
                 }
+                let user_key = get_key_for_file(&pg_client.clone(), old_path_str.clone(), &curr_user).await;
                 dao::update_path(pg_client.clone(), old_path_str, new_path.clone()).await;
-                let user_key: Key<Aes256Gcm> = (*curr_user_key).into();
-                let encrypted_name_new = encrypt_string_nononce(&mut Arc::new(Some(user_key)), new_name.clone()).unwrap();
+                let encrypted_name_new = encrypt_string_nononce(&mut Arc::new(user_key), new_name.clone()).unwrap();
+                // println!("old_path_vec_enc {:?}", old_path_str);
                 dao::update_fnode_name_if_path_is_already_updated(pg_client.clone(), new_path.clone(), new_name.clone()).await;
                 dao:: update_fnode_enc_name(pg_client.clone(), new_path.clone(), encrypted_name_new);
                 dao::remove_file_from_parent(pg_client.clone(), msg.data[0].clone(), msg.data[1].clone()).await;
@@ -267,7 +351,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let new_path_vec_enc = path_str_to_encrypted_path(new_path.clone(), &pg_client).await;
                 send_app_message(&mut ws_stream, &mut key, AppMessage {
                     cmd: Cmd::Failure,
-                    data: vec![path_vec_to_str(old_path_vec_enc), path_vec_to_str(new_path_vec_enc)],
+                    data: vec!["/home".to_string()+&path_vec_to_str(old_path_vec_enc), "/home".to_string()+&path_vec_to_str(new_path_vec_enc)],
                 }).await;
             },
             Cmd::Touch => {
@@ -287,7 +371,8 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 if handle_if_child_exists(&pg_client, &path_str, new_file_name, &mut ws_stream, &mut key).await {
                     continue;
                 }
-                let mut user_key = Arc::new(get_key_for_file(&pg_client, msg.data[0].clone()+"/"+&msg.data[1].clone(), &curr_user).await);
+                let curr_user_key_arr: Key<Aes256Gcm> = (*curr_user_key).into();
+                let mut user_key = Arc::new(Some(curr_user_key_arr));
                 let encrypted_file = encrypt_string_nononce(&mut user_key, new_file_name.clone()).expect("could not encrypt file name!");
                 let new_file = FNode {
                     id: -1,
@@ -339,15 +424,16 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     }).await;
                     continue;
                 }
-                let f_node = dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+&unencrypted_filename).await.unwrap();
+                let f_node = dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+&unencrypted_filename.clone()).await.unwrap();
                 let user = dao::get_user(pg_client.clone(), (*curr_user).clone()).await.unwrap();
                 let msg = match (f_node, user) {
                     (Some(f), Some(u)) => {
-                        let user_key: Key<Aes256Gcm> = (*curr_user_key).into();
+                        // let user_key: Key<Aes256Gcm> = (*curr_user_key).into();
+                        let mut author_key = get_key_for_file(&pg_client.clone(), path_str.clone()+"/"+&unencrypted_filename.clone(), &curr_user).await;
                         let mut path_vec_enc = path_str_to_encrypted_path(path_str.clone(), &pg_client).await;
                         // let k: aes_gcm::Key<Aes256Gcm> = u.key.as_bytes();
                         // let u8_arr: aes_gcm::Key<Aes256Gcm> = u.key.as_bytes().to_vec().into();
-                        let filename_enc = encrypt_string_nononce(&mut Arc::new(Some(user_key)), f.name);
+                        let filename_enc = encrypt_string_nononce(&mut Arc::new(author_key), f.name);
                         path_vec_enc.append(&mut vec![filename_enc.unwrap()]);
                         let mut full_path_vec = vec!["/".to_string(), "home".to_string()];
                         full_path_vec.append(&mut path_vec_enc);
@@ -394,14 +480,14 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
 
                 let additional_str = msg.data.get(2).unwrap();
                 let file_data = msg.data.get(3).unwrap();
-                let mut user_key = Arc::new(get_key_for_file(&pg_client.clone(), msg.data[0].clone()+"/"+&msg.data[1].clone(), &curr_user).await);
+                let mut author_key = Arc::new(get_key_for_file(&pg_client.clone(), msg.data[0].clone()+"/"+&msg.data[1].clone(), &curr_user).await);
                 let mut plaintext_str = "".to_string();
                 if !file_data.is_empty() {
-                    plaintext_str += &unencrypt_string_nononce(&mut user_key, file_data).unwrap();
+                    plaintext_str += &unencrypt_string_nononce(&mut author_key, file_data).unwrap();
                 }
                 let new_file_str = plaintext_str.to_owned()+additional_str;
-                let encrypted_file_data = encrypt_string_nononce(&mut user_key, new_file_str.clone()).unwrap();
-                let new_hash = hash_file(new_file_str.clone());
+                let encrypted_file_data = encrypt_string_nononce(&mut author_key, new_file_str.clone()).unwrap();
+                let new_hash = hash_file(encrypted_file_data.clone());
                 let update = dao::update_hash(pg_client.clone(), path_str, f_node.name, new_hash).await;
                 let resp = match update {
                     Ok(_) => AppMessage {
@@ -640,11 +726,12 @@ fn unencrypt_string_nononce(key: &mut Arc<Option<Key<Aes256Gcm>>>, encrypted_str
 }
 
 #[async_recursion]
-async fn search_tree_for_user(owner: String, node: &FNode, paths: &mut Vec<String>, dao_client: Arc<Mutex<Client>>, parent_enc_path: String) -> Result<(), ()> {
+async fn search_tree_for_user(owner: String, node: &FNode, paths: &mut Vec<(String, String)>, dao_client: Arc<Mutex<Client>>, parent_enc_path: String) -> Result<(), ()> {
     let child_path_enc: String = parent_enc_path.clone()+"/"+&node.encrypted_name;
+    let child_path: String = node.path.clone();
     // // search the node 
     if node.owner == owner {
-        paths.push(child_path_enc.clone());
+        paths.push((child_path_enc.clone(), child_path.clone()));
     }
     println!("{:?}", node.path); 
 
@@ -652,7 +739,11 @@ async fn search_tree_for_user(owner: String, node: &FNode, paths: &mut Vec<Strin
     if node.children.len() > 0 {
         for child_name in node.children.clone() { 
             let path: String = std::path::Path::new(node.path.as_str()).join(child_name).to_str().unwrap().into();
-            let child_fnode = get_f_node(dao_client.clone(), path).await.unwrap().unwrap();
+            let child_fnode_opt = get_f_node(dao_client.clone(), path).await.unwrap();
+            if child_fnode_opt.is_none() {
+                continue;
+            }
+            let child_fnode = child_fnode_opt.unwrap();
             search_tree_for_user(owner.clone(), &child_fnode, paths, dao_client.clone(), child_path_enc.clone()).await; 
         }
     }
@@ -733,26 +824,35 @@ fn get_user_key_from_user(user: &User) -> Option<Key<Aes256Gcm>> {
 
 
 async fn get_key_for_file(pg_client: &Arc<Mutex<Client>>, path_str: String, curr_user_name: &Arc<String>) -> Option<Key<Aes256Gcm>> {
-    println!("get key for file {}", path_str);
+    println!("get key for file {} for user {}", path_str.clone(), curr_user_name.clone());
     let f_node_opt = dao::get_f_node(pg_client.clone(), path_str.clone()).await.unwrap();
     let f_node = match f_node_opt {
         Some(f) => f,
-        None => return None
+        None => {
+            println!("can't find owner for file {}", path_str.clone());
+            return None
+        }
     };
+    println!("key_path_str {}, p0", path_str.clone());
     let curr_user = dao::get_user(pg_client.clone(), (**curr_user_name).clone()).await.unwrap().unwrap();
     let owner_user_name = f_node.owner;
     if curr_user_name.is_empty() {
+        println!("key_path_str {}, p1", path_str.clone());
         return None;
     }
     let owner_user = dao::get_user(pg_client.clone(), owner_user_name.clone()).await.unwrap().unwrap();
     if (f_node.o & 0b100)>0 {
         // get f_node owner key
+        println!("key_path_str {}, p2", path_str.clone());
         return get_user_key_from_user(&owner_user);
     } else if (f_node.u & 0b100)>0 && owner_user_name.eq(&(**curr_user_name).clone()) {
+        println!("key_path_str {}, p3", path_str.clone());
         return get_user_key_from_user(&curr_user);
     } else if curr_user.group_name.is_none() || owner_user.group_name.is_none() {
+        println!("key_path_str {}, p4", path_str.clone());
         return None;
     } else if (f_node.g & 0b100)>0 && curr_user.group_name.unwrap().eq(&owner_user.group_name.clone().unwrap()) {
+        println!("key_path_str {}, p5", path_str.clone());
         return get_user_key_from_user(&owner_user);
     }
     None

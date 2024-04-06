@@ -1,4 +1,4 @@
-use std::{fmt::format, sync::Arc};
+use std::{env, fmt::format, sync::Arc};
 
 use aes_gcm::{Aes256Gcm, Key, KeyInit};
 use tokio::sync::Mutex;
@@ -30,8 +30,8 @@ pub async fn remove_file(client: Arc<Mutex<Client>>, path: String, file_name: St
 }
 
 pub async fn update_hash(client: Arc<Mutex<Client>>, path: String, file_name: String, hash: String) -> Result<String, String>{
-    let e = client.lock().await.execute("UPDATE fnode SET hash = $1 WHERE path=$2 AND name=$2",
-    &[&path, &file_name]).await;
+    let e = client.lock().await.execute("UPDATE fnode SET hash = $1 WHERE path=$2",
+    &[&hash, &path]).await;
     match e {
         Ok(_) => Ok(path),
         Err(_) => Err(format!("couldn't update hash!")),
@@ -59,7 +59,7 @@ pub fn key_gen() -> Result<String, ()> {
 }
 
 pub async fn auth_user(client: Arc<Mutex<Client>>, user_name: String, pass: String) -> Result<bool, String> {    
-    let e = client.lock().await.query_one("SELECT * FROM users u WHERE u.user_name=$1",
+    let e = client.lock().await.query_one("SELECT u.salt FROM users u WHERE u.user_name=$1",
     &[&user_name]).await;
     let res = match e {
         Ok(row) => row,
@@ -76,16 +76,17 @@ pub async fn auth_user(client: Arc<Mutex<Client>>, user_name: String, pass: Stri
 
 //used https://docs.rs/argon2/latest/argon2/
 pub async fn create_user(client: Arc<Mutex<Client>>, user_name: String, pass: String, group: Option<String>, is_admin: bool) -> Result<Key<Aes256Gcm>, String>{
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
     let salt = match salt_pass(pass){
         Ok(salt) => salt,
         Err(_) => return Err(format!("couldn't hash user pass while creating user!")),
     };
     let key = key_gen().expect("could not serialize symmetric key!");
     let e = match group {
-        Some(_) => client.lock().await.execute("INSERT INTO users (user_name, group_name, salt, key, is_admin) VALUES ($1, $2, $3, $4, $5)",
-    &[&user_name, &group, &salt, &key, &is_admin]).await,
-        None => client.lock().await.execute("INSERT INTO users (user_name, salt, key, is_admin) VALUES ($1, $2, $3, $4)",
-    &[&user_name, &salt, &key, &is_admin]).await,
+        Some(_) => client.lock().await.execute("INSERT INTO users (user_name, group_name, salt, key, is_admin) VALUES ($1, $2, $3, pgp_sym_encrypt($4 ::text, $6 ::text), $5)",
+    &[&user_name, &group, &salt, &key, &is_admin, &db_pass]).await,
+        None => client.lock().await.execute("INSERT INTO users (user_name, salt, key, is_admin) VALUES ($1, $2, pgp_sym_encrypt($3 ::text, $5 ::text), $4)",
+    &[&user_name, &salt, &key, &is_admin, &db_pass]).await,
     };
     match e {
         Ok(_) => Ok(serde_json::from_str::<[u8; 32]>(&key).unwrap().into()),
@@ -177,8 +178,9 @@ pub async fn change_file_perms(client: Arc<Mutex<Client>>, file_path: String, u:
 }
 
 pub async fn update_path(client: Arc<Mutex<Client>>, file_path: String, new_file_path: String) -> Result<(), String>{
-    let e = client.lock().await.execute("UPDATE fnode SET path = regexp_replace(path, '^$1', '$2', 'g') WHERE path ~ '^$1'",
-    &[&file_path, &new_file_path]).await;
+    let e = client.lock().await.execute("UPDATE fnode SET path = regexp_replace(path, $1, $2, 'g') WHERE path ~ $3",
+        &[&format!("^{}", file_path), &new_file_path, &format!("^{}", file_path)]
+    ).await;
     match e {
         Ok(_) => Ok(()),
         _ => Err("Failed to update path!".to_string()),
@@ -204,7 +206,9 @@ pub async fn update_fnode_enc_name(client: Arc<Mutex<Client>>, path: String, new
 }
 
 pub async fn get_user(client: Arc<Mutex<Client>>, user_name: String) -> Result<Option<User>, String> {
-    let e = client.lock().await.query_opt("SELECT * FROM users WHERE user_name = $1", &[&user_name]).await;
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let e = client.lock().await.query_opt("SELECT id, user_name, group_name, pgp_sym_decrypt(key ::bytea, $2 ::text) AS key, salt, is_admin FROM users WHERE user_name = $1",
+     &[&user_name, &db_pass]).await;
     match e {
         Ok(Some(row)) => Ok(Some(User{
             id: row.get("id"),
