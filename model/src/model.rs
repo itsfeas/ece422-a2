@@ -36,7 +36,7 @@ pub struct Group {
     pub g_name: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
 pub enum Cmd {
     Cat,
     Cd,
@@ -53,10 +53,12 @@ pub enum Cmd {
     Failure,
     Pwd,
     Touch,
-    Chmod
+    Chmod,
+    Logout,
+    #[default] Invalid
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppMessage {
     pub cmd: Cmd,
     pub data: Vec<String>,

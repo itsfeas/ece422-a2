@@ -78,7 +78,7 @@ pub async fn auth_user(client: Arc<Mutex<Client>>, user_name: String, pass: Stri
     &[&user_name]).await;
     let res = match e {
         Ok(row) => row,
-        Err(_) => return Err(format!("could not query whether user exists!")),
+        Err(_) => return Ok(false),
     }; 
     let hash: String = res.get("salt");
     let hash_str: PasswordHashString = PasswordHashString::parse(hash.as_str(), Encoding::B64).unwrap();
