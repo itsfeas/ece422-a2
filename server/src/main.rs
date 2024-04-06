@@ -210,9 +210,10 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         }
                     },
                     ((true, Err(_)) | (false, _)) => {
+                        let vec: Vec<String> = vec![];
                         AppMessage {
                             cmd: Cmd::Failure,
-                            data: vec!["failed to login!".to_string()],
+                            data: vec!["failed to login!".to_string(), "".to_string(), serde_json::to_string(&vec).unwrap()],
                         }
                     },
                 };
