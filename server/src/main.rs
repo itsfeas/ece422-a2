@@ -168,16 +168,23 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 };
                 let ugo = msg.data[2].clone();
                 // println!("new perms {:?}", ugo.split("").clone().into_iter().collect::<Vec<&str>>());
-                let perms: Vec<i16> = ugo.split("").into_iter()
+                let f = dao::get_f_node(pg_client.clone(),
+                path_str.clone()).await.unwrap().unwrap();
+                let mut perms_str: Vec<String> = ugo.split("").into_iter()
                     .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
+                if perms_str[0]=="x" {perms_str[0]=f.u.to_string()}
+                if perms_str[1]=="x" {perms_str[1]=f.g.to_string()}
+                if perms_str[2]=="x" {perms_str[2]=f.o.to_string()}
+                let perms: Vec<i16> = perms_str.iter()
                     .map(|s| s.parse::<i16>().unwrap())
                     .collect();
-                let has_write_perms = have_write_perms_for_file(&pg_client,
-                    path_str.clone(), &curr_user).await;
-                if !has_write_perms {
+                let is_owner = f.owner.eq(&(*curr_user).clone());
+                if !is_owner {
                     send_app_message(&mut ws_stream, &mut key, AppMessage {
                         cmd: Cmd::Failure,
-                        data: vec!["do not have write permissions!".to_string()],
+                        data: vec!["you are not the owner!".to_string()],
                     }).await;
                     continue;
                 }
