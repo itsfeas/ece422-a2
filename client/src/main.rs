@@ -208,7 +208,10 @@ fn login<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm
         let recv_message = recv_decrypt(socket, key).unwrap(); 
         match recv_message.cmd {
             Cmd::Scan => {continue;},   
-            Cmd::Failure => {corrupt_count += 1; }, 
+            Cmd::Failure => {
+                corrupt_count += 1; 
+                println!("{:?} {:?}", x.0.clone(), x.1.clone())
+            }, 
             _ => {panic!("Invalid message received when running Scan")}
         } 
     }
@@ -741,7 +744,7 @@ fn convert_path_to_enc<S>(filename: &String,
 
 
 fn scan(paths: &Vec<(String, String)>) -> Vec<(String, String)> {
-    
+     
     let mut content: Vec<(String, String)> = vec![]; 
     for x in paths {
         let mut reg_path = x.0.clone(); 
@@ -765,5 +768,6 @@ fn scan(paths: &Vec<(String, String)>) -> Vec<(String, String)> {
         }
 
     }
+    // outputs Vec<path, contents>
     content
 }
