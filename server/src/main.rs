@@ -48,6 +48,7 @@ async fn main() -> Result<(), Error> {
 }
 
 async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
+    dao::init_db(pg_client.clone()).await;
     let addr = stream.peer_addr().expect("could not find peer address!");
     println!("peer: {}", addr);
     

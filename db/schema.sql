@@ -7,9 +7,9 @@ CREATE TABLE if not exists fnode  (
     hash VARCHAR,
     parent VARCHAR,
     dir BOOLEAN,
-    u SMALLINT,
-    g SMALLINT,
-    o SMALLINT,
+    u VARCHAR, -- INTEGER BEFORE ENCRYPTION
+    g VARCHAR, -- INTEGER BEFORE ENCRYPTION
+    o VARCHAR, -- INTEGER BEFORE ENCRYPTION
     children VARCHAR[],
     encrypted_name VARCHAR
 );
@@ -29,7 +29,7 @@ CREATE TABLE users (
     is_admin BOOLEAN
 );
 
-INSERT INTO fnode (name, path, owner, hash, parent, dir, u, g, o, children, encrypted_name) VALUES ('home', '/home', NULL, '', '/', true, 7, 7, 7, ARRAY[]::VARCHAR[], '');
+-- INSERT INTO fnode (name, path, owner, hash, parent, dir, u, g, o, children, encrypted_name) VALUES ('home', '/home', NULL, '', '/', true, 7, 7, 7, ARRAY[]::VARCHAR[], '');
 INSERT INTO groups (users, g_name) VALUES (ARRAY[]::VARCHAR[], 'admin_group');
 -- admin user cannot interact with files, so leaving key here is okay (keys are only used for file interactions)
 INSERT INTO users (id, user_name, key, salt, is_admin) VALUES (0, 'admin', pgp_sym_encrypt('[200,87,79,201,112,11,113,60,116,203,21,239,45,147,162,69,17,97,14,36,219,66,33,153,97,215,153,50,84,47,97,184]', 'DOES_NOT_MATTER'), '$argon2id$v=19$m=19456,t=2,p=1$2x+D890DlNldiUEFWj6osA$xCXFoO12ImKyfo9B9VNcMx+fJcexMcvQ7Z4f7BmF5do', true);
