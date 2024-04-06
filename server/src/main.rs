@@ -125,7 +125,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                             parent: path_str.clone(),
                             dir: true,
                             u: 7,
-                            g: 0,
+                            g: 7,
                             o: 0,
                             children: vec![],
                             encrypted_name: encrypted_file_name.clone()
