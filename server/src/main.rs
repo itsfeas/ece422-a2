@@ -231,7 +231,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let msg = if hash_new.eq(&hash_existing) {
                     AppMessage {
                         cmd: Cmd::Scan,
-                        data: vec![format!("failed to ensure integrity of {}!", path_str)],
+                        data: vec![format!("ensured integrity of {}!", path_str)],
                     }
                 } else {
                     AppMessage {
