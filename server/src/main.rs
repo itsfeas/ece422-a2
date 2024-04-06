@@ -210,9 +210,10 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                         }
                     },
                     ((true, Err(_)) | (false, _)) => {
+                        let vec: Vec<String> = vec![];
                         AppMessage {
                             cmd: Cmd::Failure,
-                            data: vec!["failed to login!".to_string()],
+                            data: vec!["failed to login!".to_string(), "".to_string(), serde_json::to_string(&vec).unwrap()],
                         }
                     },
                 };
@@ -423,15 +424,16 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     }).await;
                     continue;
                 }
-                let f_node = dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+&unencrypted_filename).await.unwrap();
+                let f_node = dao::get_f_node(pg_client.clone(), path_str.clone()+"/"+&unencrypted_filename.clone()).await.unwrap();
                 let user = dao::get_user(pg_client.clone(), (*curr_user).clone()).await.unwrap();
                 let msg = match (f_node, user) {
                     (Some(f), Some(u)) => {
-                        let user_key: Key<Aes256Gcm> = (*curr_user_key).into();
+                        // let user_key: Key<Aes256Gcm> = (*curr_user_key).into();
+                        let mut author_key = get_key_for_file(&pg_client.clone(), path_str.clone()+"/"+&unencrypted_filename.clone(), &curr_user).await;
                         let mut path_vec_enc = path_str_to_encrypted_path(path_str.clone(), &pg_client).await;
                         // let k: aes_gcm::Key<Aes256Gcm> = u.key.as_bytes();
                         // let u8_arr: aes_gcm::Key<Aes256Gcm> = u.key.as_bytes().to_vec().into();
-                        let filename_enc = encrypt_string_nononce(&mut Arc::new(Some(user_key)), f.name);
+                        let filename_enc = encrypt_string_nononce(&mut Arc::new(author_key), f.name);
                         path_vec_enc.append(&mut vec![filename_enc.unwrap()]);
                         let mut full_path_vec = vec!["/".to_string(), "home".to_string()];
                         full_path_vec.append(&mut path_vec_enc);
