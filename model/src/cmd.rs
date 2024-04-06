@@ -28,3 +28,32 @@ impl MapStr for Cmd {
         }
     }
 }
+
+pub trait NumArgs {
+    fn num_args(s: String) -> Result<usize, ()>;
+}
+
+impl NumArgs for Cmd {
+    fn num_args(s: String) -> Result<usize, ()> {
+        match s.to_lowercase().as_str() {
+            "cat" => Ok(2),
+            "cd" => Ok(2),
+            "echo" => Ok(usize::MAX),
+            "login" => Ok(2),
+            "get_encrypted_filename" => Ok(usize::MAX),
+            "ls" => Ok(1),
+            "mkdir" => Ok(2),
+            "mv" => Ok(3),
+            "chmod" => Ok(3),
+            "scan" => Ok(usize::MAX),
+            "new_connection" => Ok(usize::MAX),
+            "new_user" => Ok(4),
+            "new_group" => Ok(2),
+            "failure" => Ok(usize::MAX),
+            "pwd" => Ok(1),
+            "touch" => Ok(2),
+            "logout" => Ok(1),
+            _ => Err(()),
+        }
+    }
+}
