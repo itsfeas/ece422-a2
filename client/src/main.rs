@@ -501,7 +501,7 @@ fn mv<S>(msg: &mut AppMessage,
     let old_path = unencrypted_response.data[0].clone();
     let new_path = unencrypted_response.data[1].clone();
     println!("attempting to rename {} to {}", old_path, new_path);
-    rename("../FILESYSTEM".to_string()+&old_path, "../FILESYSTEM".to_string()+&new_path).unwrap();
+    rename(old_path, new_path).unwrap();
     Ok(())
  }
 
@@ -673,7 +673,22 @@ fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Resu
     let mut filename = app_msg.data[0].clone(); 
 
     if app_msg.cmd == Cmd::Echo && app_msg.data.len() > 1 {
-        filename = app_msg.data[app_msg.data.len()-1].clone(); 
+        filename = app_msg.data[app_msg.data.len()-1].clone();
+        let mut string_vec = vec![]; 
+        for x in app_msg.data.clone() {
+            if x == ">".to_string() {
+                break; 
+            }
+            string_vec.push(x); 
+        }
+        let mut str_msg = string_vec.join(" ").to_string();
+        if str_msg.starts_with("\"") {
+            str_msg.remove(0); 
+        }
+        if str_msg.ends_with("\"") {
+            str_msg.pop().unwrap(); 
+        }
+        app_msg.data = vec![str_msg, ">".into(), filename.clone()]; 
     }
 
     // if root path specified, replace current path string with filename
