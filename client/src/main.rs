@@ -184,6 +184,10 @@ fn user_session<S>(socket: &mut WebSocket<S>, mut aes_key: Key<Aes256Gcm>, path:
                 echo(app_message, socket, &mut aes_key, &rel_current_path).unwrap_or_else(print_err);
                 
             },
+            Cmd::Delete => {
+                let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
+                delete(&mut app_message, socket, &mut aes_key,  &rel_current_path).unwrap_or_else(print_err);
+            },
             Cmd::Touch => {
                 
                 let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
@@ -267,7 +271,8 @@ fn login<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm
         match recv_message.cmd {
             Cmd::Scan => {continue;},   
             Cmd::Failure => {
-                corrupt_count += 1; 
+                corrupt_count += 1;
+                println!("{}", recv_message.data[0]);
                 // println!("{:?} {:?}", x.0.clone(), x.1.clone())
             }, 
             _ => {panic!("Invalid message received when running Scan")}
@@ -415,6 +420,13 @@ fn cd<S>(app_message: AppMessage,
          curr_path_read_only: &Path) -> Result<(), String>  where S: std::io::Read, S: std::io::Write { 
 
     let target_dir: String = app_message.data[1].clone(); 
+    if curr_path_read_only.path[curr_path_read_only.path.len()-1].1 == "home".to_string() &&
+        curr_path_read_only.path.len() == 2 && 
+        target_dir.eq(".."){
+        println!("Cannot go below home"); 
+        return Ok(()); 
+    }
+
     if target_dir.eq("..") {
         current_path.path.pop(); 
         return Ok(());
@@ -567,10 +579,27 @@ fn mv<S>(msg: &mut AppMessage,
  ) -> Result<(), String> where S:std::io::Read, S:std::io::Write {
     send_encrypt(msg, socket, encryption_key).unwrap();
     let unencrypted_response = recv_decrypt(socket, encryption_key).unwrap();
-    let old_path = unencrypted_response.data[0].clone();
-    let new_path = unencrypted_response.data[1].clone();
+    let old_path = "../FILESYSTEM".to_string()+&unencrypted_response.data[0].clone();
+    let new_path = "../FILESYSTEM".to_string()+&unencrypted_response.data[1].clone();
     // println!("attempting to rename {} to {}", old_path, new_path);
     rename(old_path, new_path).unwrap();
+    Ok(())
+ }
+
+fn delete<S>(msg: &mut AppMessage,
+    socket: &mut WebSocket<S>, 
+    encryption_key: &mut Key<Aes256Gcm>,
+    current_path: &Path
+ ) -> Result<(), String> where S:std::io::Read, S:std::io::Write {
+    send_encrypt(msg, socket, encryption_key).unwrap();
+    let unencrypted_response = recv_decrypt(socket, encryption_key).unwrap();
+    let path_to_del = "../FILESYSTEM".to_string()+&unencrypted_response.data[0].clone();
+    let meta = fs::metadata(path_to_del.clone()).unwrap();
+    if meta.is_file() {
+        fs::remove_file(path_to_del).unwrap();
+    } else if meta.is_dir() {
+        fs::remove_dir_all(path_to_del).unwrap();
+    }
     Ok(())
  }
 
@@ -627,12 +656,12 @@ fn echo<S>(app_message: AppMessage,
     let path_enc = match convert_path_to_enc(&target_file, current_path, socket, encryption_key) {
         Ok(e) => e,
         Err(_) => {
-            touch(AppMessage {
-                cmd: Cmd::Touch,
-                data: vec![current_path.to_string(), target_file.clone()]
-            }, socket, encryption_key, current_path);
-            echo(app_message, socket, encryption_key, current_path);
-            return Ok(());
+            // touch(AppMessage {
+            //     cmd: Cmd::Touch,
+            //     data: vec![current_path.to_string(), target_file.clone()]
+            // }, socket, encryption_key, current_path);
+            // echo(app_message, socket, encryption_key, current_path);
+            return Err("File does not exist or cannot be written to".to_string());
         },
     };
     let mut path_enc_string = path_enc.to_string();
@@ -766,7 +795,7 @@ fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Resu
         if let Some(s) = current_path_vec.pop() {
             filename = s; 
             current_path_str = current_path_vec.join("/"); 
-            current_path_str.insert_str(0, "/"); 
+            // current_path_str.insert_str(0, "/"); 
         } else {
             filename = String::from("/"); 
             current_path_str = String::from("/"); 
@@ -782,6 +811,21 @@ fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Resu
         current_path_str = current_path_vec.join("/");
         current_path_str.remove(0); 
     }
+    // process current_path_str 
+    let mut curr_path_vec: Vec<String> = vec![]; 
+    // println!("Current path string: {}", current_path_str); 
+    current_path_str.split("/").for_each(|x| {
+        if x.clone() == ".." && curr_path_vec.len() > 0{
+            curr_path_vec.pop().unwrap(); 
+        } else if x.clone() == "." {
+
+        } else {
+            curr_path_vec.push(x.clone().to_string());  
+        }
+    }); 
+   
+    current_path_str = curr_path_vec.join("/"); 
+    // println!("Current path string: {}", current_path_str); 
     
     if app_msg.cmd == Cmd::Echo && app_msg.data.len() > 1 {
         let data = app_msg.data[0].clone(); 
@@ -792,12 +836,14 @@ fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Resu
         app_msg.data.insert(0, current_path_str); 
 
     }
+
+    // println!("{:?}", app_msg); 
     
     Ok(Path {
         path: {
             let mut vecpath = app_msg.data[0].clone().split("/").filter(|x| (*x).clone() != "").map(|x| (false, x.into())).collect::<Vec<(bool, String)>>();  
             vecpath.insert(0, (false, "/".into())); 
-            // println!("{:?}", vecpath); 
+            // println!("{:?}", vecpath);
             vecpath
         }
     })
@@ -843,7 +889,8 @@ fn scan(paths: &Vec<(String, String)>) -> Vec<(String, String)> {
         }
         let md = fs::metadata(enc_path.clone()).unwrap(); 
         if md.is_dir() {
-            content.push((x.1.clone(), "".into())); 
+            // content.push((x.1.clone(), "".into()));
+            // dont need to check contents of a dir
         } else if md.is_file() {
             let file_contents = fs::read_to_string(enc_path.clone()).unwrap(); 
             content.push((x.1.clone(), file_contents)); 

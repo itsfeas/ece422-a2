@@ -1,4 +1,4 @@
-use std::{env, fmt::format, sync::Arc};
+use std::{env, fmt::format, sync::Arc, vec};
 
 use aes_gcm::{Aes256Gcm, Key, KeyInit};
 use tokio::sync::Mutex;
@@ -12,26 +12,41 @@ use argon2::{
 use model::model::{FNode, User};
 
 pub async fn add_file(client: Arc<Mutex<Client>>, file: FNode) -> Result<String, String> {
-    let e = client.lock().await.execute("INSERT INTO fnode (name, path, owner, hash, parent, dir, u, g, o, children, encrypted_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-    &[&file.name, &file.path, &file.owner, &file.hash, &file.parent, &file.dir, &file.u, &file.g, &file.o, &file.children, &file.encrypted_name]).await;
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let e = client.lock().await.execute("INSERT INTO
+    fnode (name, path, owner, hash, parent, dir, u, g, o, children, encrypted_name)
+    VALUES (
+        pgp_sym_encrypt($1 ::text, $12 ::text),
+        pgp_sym_encrypt($2 ::text, $12 ::text),
+        pgp_sym_encrypt($3 ::text, $12 ::text),
+        $4,
+        pgp_sym_encrypt($5 ::text, $12 ::text),
+        $6,
+        pgp_sym_encrypt($7 ::text, $12 ::text),
+        pgp_sym_encrypt($8 ::text, $12 ::text),
+        pgp_sym_encrypt($9 ::text, $12 ::text),
+        $10,
+        $11)",
+    &[&file.name, &file.path, &file.owner, &file.hash, &file.parent, &file.dir, &file.u.to_string(), &file.g.to_string(), &file.o.to_string(), &file.children, &file.encrypted_name, &db_pass]).await;
     match e {
         Ok(_) => Ok(file.name),
         Err(err) => Err(format!("{}",err)),
     }
 }
 
-pub async fn remove_file(client: Arc<Mutex<Client>>, path: String, file_name: String) -> Result<String, String> {
-    let e = client.lock().await.execute("DELETE FROM fnode WHERE path=$1 AND name=$2",
-    &[&path, &file_name]).await;
-    match e {
-        Ok(_) => Ok(path),
-        Err(_) => Err(format!("couldn't remove file!")),
-    }
-}
+// pub async fn remove_file(client: Arc<Mutex<Client>>, path: String, file_name: String) -> Result<String, String> {
+//     let e = client.lock().await.execute("DELETE FROM fnode WHERE path=$1 AND name=$2",
+//     &[&path, &file_name]).await;
+//     match e {
+//         Ok(_) => Ok(path),
+//         Err(_) => Err(format!("couldn't remove file!")),
+//     }
+// }
 
 pub async fn update_hash(client: Arc<Mutex<Client>>, path: String, file_name: String, hash: String) -> Result<String, String>{
-    let e = client.lock().await.execute("UPDATE fnode SET hash = $1 WHERE path=$2",
-    &[&hash, &path]).await;
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let e = client.lock().await.execute("UPDATE fnode SET hash = $1 WHERE pgp_sym_decrypt(path ::bytea, $3 ::text)=$2",
+    &[&hash, &path, &db_pass]).await;
     match e {
         Ok(_) => Ok(path),
         Err(_) => Err(format!("couldn't update hash!")),
@@ -103,40 +118,51 @@ pub async fn create_group(client: Arc<Mutex<Client>>, group_name: String) -> Res
     }
 }
 
-pub async fn add_user_to_group(client: Arc<Mutex<Client>>, user_name: String, group_name: String) -> Result<String, String>{
-    let e = client.lock().await.execute("UPDATE groups SET users = ARRAY_APPEND(users, $1) WHERE g_name=$2",
-    &[&user_name, &group_name]).await;
-    let e1 = client.lock().await.execute("UPDATE users SET group_name=$1 WHERE user_name=$2",
-    &[&group_name, &user_name]).await;
-    match (e, e1) {
-        (Ok(_), Ok(_)) => Ok(group_name),
-        _ => Err("Failed to add user to group!".to_string()),
-    }
-}
+// pub async fn add_user_to_group(client: Arc<Mutex<Client>>, user_name: String, group_name: String) -> Result<String, String>{
+//     let e = client.lock().await.execute("UPDATE groups SET users = ARRAY_APPEND(users, $1) WHERE g_name=$2",
+//     &[&user_name, &group_name]).await;
+//     let e1 = client.lock().await.execute("UPDATE users SET group_name=$1 WHERE user_name=$2",
+//     &[&group_name, &user_name]).await;
+//     match (e, e1) {
+//         (Ok(_), Ok(_)) => Ok(group_name),
+//         _ => Err("Failed to add user to group!".to_string()),
+//     }
+// }
 
-pub async fn remove_user_from_group(client: Arc<Mutex<Client>>, user_name: String, group_name: String) -> Result<String, String>{
-    let e = client.lock().await.execute("UPDATE groups SET users = array_remove(users, $1) WHERE g_name=$2",
-    &[&user_name, &group_name]).await;
-    let e1 = client.lock().await.execute("UPDATE users SET group='' WHERE user_name=$2",
-    &[&group_name, &user_name]).await;
-    match (e, e1) {
-        (Ok(_), Ok(_)) => Ok(group_name),
-        _ => Err("Failed to remove user from group!".to_string()),
-    }
-}
+// pub async fn remove_user_from_group(client: Arc<Mutex<Client>>, user_name: String, group_name: String) -> Result<String, String>{
+//     let e = client.lock().await.execute("UPDATE groups SET users = array_remove(users, $1) WHERE g_name=$2",
+//     &[&user_name, &group_name]).await;
+//     let e1 = client.lock().await.execute("UPDATE users SET group='' WHERE user_name=$2",
+//     &[&group_name, &user_name]).await;
+//     match (e, e1) {
+//         (Ok(_), Ok(_)) => Ok(group_name),
+//         _ => Err("Failed to remove user from group!".to_string()),
+//     }
+// }
 
 pub async fn add_file_to_parent(client: Arc<Mutex<Client>>, parent_path: String, new_f_node_name: String) -> Result<(), String>{
-    let e = client.lock().await.execute("UPDATE fnode SET children = ARRAY_APPEND(children, $1) WHERE path=$2",
-    &[&new_f_node_name, &parent_path]).await;
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let e = client.lock().await.execute("UPDATE fnode SET children =
+        ARRAY_APPEND(children,
+            pgp_sym_encrypt($1 ::text, $3 ::text)::text
+        )
+        WHERE pgp_sym_decrypt(path ::bytea, $3 ::text)=$2",
+    &[&new_f_node_name, &parent_path, &db_pass]).await;
     match e {
         Ok(_) => Ok(()),
-        _ => Err("Failed to add user to group!".to_string()),
+        _ => Err("Failed to add file to parent!".to_string()),
     }
 }
 
 pub async fn remove_file_from_parent(client: Arc<Mutex<Client>>, parent_path: String, f_node_name: String) -> Result<(), String>{
-    let e = client.lock().await.execute("UPDATE fnode SET children = ARRAY_REMOVE(children, $1) WHERE path=$2",
-    &[&f_node_name, &parent_path]).await;
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let e = client.lock().await.execute("UPDATE fnode
+        SET children = 
+            (SELECT array_agg(pgp_sym_encrypt(child1::text, $3::text)) FROM unnest
+                (ARRAY_REMOVE((SELECT array_agg(pgp_sym_decrypt(child ::bytea, $3::text)) FROM unnest(children) AS child), $1)
+            ) AS child1)
+            WHERE pgp_sym_decrypt(path ::bytea, $3 ::text)=$2",
+    &[&f_node_name, &parent_path, &db_pass]).await;
     match e {
         Ok(_) => Ok(()),
         _ => Err("Failed to add user to group!".to_string()),
@@ -144,7 +170,22 @@ pub async fn remove_file_from_parent(client: Arc<Mutex<Client>>, parent_path: St
 }
 
 pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Option<FNode>, String> {
-    let e = client.lock().await.query_opt("SELECT * FROM fnode WHERE path = $1", &[&path]).await;
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let e = client.lock().await.query_opt("SELECT 
+        id,
+        pgp_sym_decrypt(name ::bytea, $2 ::text) AS name,
+        pgp_sym_decrypt(path ::bytea, $2 ::text) AS path,
+        pgp_sym_decrypt(owner ::bytea, $2 ::text) AS owner,
+        hash,
+        parent,
+        dir,
+        CAST (pgp_sym_decrypt(u ::bytea, $2 ::text) AS SMALLINT) AS u,
+        CAST (pgp_sym_decrypt(g ::bytea, $2 ::text) AS SMALLINT) AS g,
+        CAST (pgp_sym_decrypt(o ::bytea, $2 ::text) AS SMALLINT) AS o,
+        (SELECT array_agg(pgp_sym_decrypt(child ::bytea, $2::text)) FROM unnest(children) AS child) AS children,
+        encrypted_name
+    FROM fnode WHERE pgp_sym_decrypt(path::bytea, $2::text) = $1",
+        &[&path, &db_pass]).await;
     match e {
         Ok(Some(row)) => {
             let fnode = FNode {
@@ -158,7 +199,7 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
                 u: row.get(7),
                 g: row.get(8),
                 o: row.get(9),
-                children: row.get(10),
+                children: row.try_get(10).unwrap_or(vec![]),
                 encrypted_name: row.get(11),
             };
             Ok(Some(fnode))
@@ -169,8 +210,14 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
 }
 
 pub async fn change_file_perms(client: Arc<Mutex<Client>>, file_path: String, u: i16, g: i16, o: i16) -> Result<(), String>{
-    let e = client.lock().await.execute("UPDATE fnode SET u=$2, g=$3, o=$4 WHERE path=$1",
-    &[&file_path, &u, &g, &o]).await;
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let e = client.lock().await.execute("
+        UPDATE fnode SET
+            u=pgp_sym_encrypt($2 ::text, $5 ::text),
+            g=pgp_sym_encrypt($3 ::text, $5 ::text),
+            o=pgp_sym_encrypt($4 ::text, $5 ::text)
+        WHERE pgp_sym_decrypt(path ::bytea, $5 ::text)=$1",
+    &[&file_path, &u.to_string(), &g.to_string(), &o.to_string(), &db_pass]).await;
     match e {
         Ok(_) => Ok(()),
         _ => Err("Failed to update file permissions!".to_string()),
@@ -178,8 +225,27 @@ pub async fn change_file_perms(client: Arc<Mutex<Client>>, file_path: String, u:
 }
 
 pub async fn update_path(client: Arc<Mutex<Client>>, file_path: String, new_file_path: String) -> Result<(), String>{
-    let e = client.lock().await.execute("UPDATE fnode SET path = regexp_replace(path, $1, $2, 'g') WHERE path ~ $3",
-        &[&format!("^{}", file_path), &new_file_path, &format!("^{}", file_path)]
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let e = client.lock().await.execute("UPDATE fnode SET path = 
+        pgp_sym_encrypt(
+            regexp_replace(
+                pgp_sym_decrypt(path ::bytea, $4 ::text),
+            $1, $2, 'g'),
+        $4 ::text)
+        WHERE pgp_sym_decrypt(path ::bytea, $4 ::text) ~ $3",
+        &[&format!("^{}", file_path), &new_file_path, &format!("^{}", file_path), &db_pass]
+    ).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to update path!".to_string()),
+    }
+}
+
+pub async fn delete_path(client: Arc<Mutex<Client>>, file_path: String) -> Result<(), String>{
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let e = client.lock().await.execute("
+        DELETE FROM fnode WHERE pgp_sym_decrypt(path ::bytea, $2 ::text) ~ $1",
+        &[&format!("^{}", file_path), &db_pass]
     ).await;
     match e {
         Ok(_) => Ok(()),
@@ -188,8 +254,11 @@ pub async fn update_path(client: Arc<Mutex<Client>>, file_path: String, new_file
 }
 
 pub async fn update_fnode_name_if_path_is_already_updated(client: Arc<Mutex<Client>>, path: String, new_name: String) -> Result<(), String>{
-    let e = client.lock().await.execute("UPDATE fnode SET name = $2 WHERE path = $1",
-    &[&path, &new_name]).await;
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let e = client.lock().await.execute("UPDATE fnode SET name =
+        pgp_sym_encrypt($2 ::text, $3 ::text)
+        WHERE pgp_sym_decrypt(path::bytea, $3::text) = $1",
+    &[&path, &new_name, &db_pass]).await;
     match e {
         Ok(_) => Ok(()),
         _ => Err("Failed to update f_node name!".to_string()),
@@ -197,8 +266,9 @@ pub async fn update_fnode_name_if_path_is_already_updated(client: Arc<Mutex<Clie
 }
 
 pub async fn update_fnode_enc_name(client: Arc<Mutex<Client>>, path: String, new_enc_name: String) -> Result<(), String>{
-    let e = client.lock().await.execute("UPDATE fnode SET encrypted_name = $2 WHERE path = $1",
-    &[&path, &new_enc_name]).await;
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let e = client.lock().await.execute("UPDATE fnode SET encrypted_name = $2 WHERE pgp_sym_decrypt(path ::bytea, $3 ::text) = $1",
+    &[&path, &new_enc_name, &db_pass]).await;
     match e {
         Ok(_) => Ok(()),
         _ => Err("Failed to update f_node name!".to_string()),
@@ -238,13 +308,25 @@ pub async fn get_group(client: Arc<Mutex<Client>>, group_name: String) -> Result
     }
 }
 
-// //////////////////////////////////
-// ///     FILESYSTEM MOVEMENT    ///
-// //////////////////////////////////
-
-
-// pub trait Traversal {
-//     fn make_child(&self) -> Result<Self, String> where Self: Sized; 
-//     fn get_child(&self) -> Result<Self, String> where Self: Sized; 
-//     fn set_child(&mut self) -> Result<Self, String> where Self: Sized; 
-// }
+pub async fn init_db(client: Arc<Mutex<Client>>) -> Result<(), ()> {
+    let does_home_exist = get_f_node(client.clone(), "/home".to_string()).await.unwrap().is_some();
+    if !does_home_exist {
+        add_file(
+            client.clone(),
+        FNode {
+                id: -1,
+                name: "home".to_string(),
+                path: "/home".to_string(),
+                owner: "".to_string(),
+                hash: "".to_string(),
+                parent: "".to_string(),
+                dir: true,
+                u: 4,
+                g: 4,
+                o: 4,
+                children: vec![],
+                encrypted_name: "".to_string()
+            }).await.unwrap();
+    }
+    Ok(())
+}

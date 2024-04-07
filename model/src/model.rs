@@ -40,6 +40,7 @@ pub struct Group {
 pub enum Cmd {
     Cat,
     Cd,
+    Delete,
     Echo,
     Login,
     Ls,
