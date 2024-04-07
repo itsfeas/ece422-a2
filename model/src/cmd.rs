@@ -47,7 +47,7 @@ impl NumArgs for Cmd {
             "chmod" => Ok(3),
             "scan" => Ok(usize::MAX),
             "new_connection" => Ok(usize::MAX),
-            "new_user" => Ok(4),
+            "new_user" => Ok(3),
             "new_group" => Ok(2),
             "failure" => Ok(usize::MAX),
             "pwd" => Ok(1),
