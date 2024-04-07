@@ -336,6 +336,29 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 send_app_message(&mut ws_stream, &mut key, msg).await;
                 continue;
             },
+            Cmd::Delete => {
+                if !authenticated { continue; }
+                let (path, path_str, f_node) = match get_and_check_path(msg.data[0].clone()+"/"+&msg.data[1].clone(), &pg_client, &mut ws_stream, &mut key).await {
+                    Some(value) => value,
+                    None => continue,
+                };
+                let mut path_vec_enc = path_str_to_encrypted_path(path_str.clone(), &pg_client).await;
+                let has_write_perms = have_write_perms_for_file(&pg_client,
+                    path_str.clone(), &curr_user).await;
+                if !has_write_perms {
+                    send_app_message(&mut ws_stream, &mut key, AppMessage {
+                        cmd: Cmd::Failure,
+                        data: vec!["do not have write permissions!".to_string()],
+                    }).await;
+                    continue;
+                }
+                dao::delete_path(pg_client.clone(), path_str).await;
+                dao::remove_file_from_parent(pg_client.clone(), msg.data[0].clone(), msg.data[1].clone()).await;
+                send_app_message(&mut ws_stream, &mut key, AppMessage {
+                    cmd: Cmd::Delete,
+                    data: vec!["/home".to_string()+&path_vec_to_str(path_vec_enc)],
+                }).await;
+            },
             Cmd::Mv => {
                 if !authenticated { continue; }
                 let (old_path, old_path_str, f_node) = match get_and_check_path(msg.data[0].clone()+"/"+&msg.data[1].clone(), &pg_client, &mut ws_stream, &mut key).await {

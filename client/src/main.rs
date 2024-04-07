@@ -179,6 +179,10 @@ fn user_session<S>(socket: &mut WebSocket<S>, mut aes_key: Key<Aes256Gcm>, path:
                 echo(app_message, socket, &mut aes_key, &rel_current_path).unwrap_or_else(print_err);
                 
             },
+            Cmd::Delete => {
+                let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
+                delete(&mut app_message, socket, &mut aes_key,  &rel_current_path).unwrap_or_else(print_err);
+            },
             Cmd::Touch => {
                 
                 let rel_current_path = preprocess_app_message(&mut app_message, &path).unwrap();
@@ -263,7 +267,7 @@ fn login<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm
             Cmd::Scan => {continue;},   
             Cmd::Failure => {
                 corrupt_count += 1; 
-                // println!("{:?} {:?}", x.0.clone(), x.1.clone())
+                println!("{:?} {:?}", x.0.clone(), x.1.clone())
             }, 
             _ => {panic!("Invalid message received when running Scan")}
         } 
@@ -566,6 +570,23 @@ fn mv<S>(msg: &mut AppMessage,
     let new_path = "../FILESYSTEM".to_string()+&unencrypted_response.data[1].clone();
     // println!("attempting to rename {} to {}", old_path, new_path);
     rename(old_path, new_path).unwrap();
+    Ok(())
+ }
+
+fn delete<S>(msg: &mut AppMessage,
+    socket: &mut WebSocket<S>, 
+    encryption_key: &mut Key<Aes256Gcm>,
+    current_path: &Path
+ ) -> Result<(), String> where S:std::io::Read, S:std::io::Write {
+    send_encrypt(msg, socket, encryption_key).unwrap();
+    let unencrypted_response = recv_decrypt(socket, encryption_key).unwrap();
+    let path_to_del = "../FILESYSTEM".to_string()+&unencrypted_response.data[0].clone();
+    let meta = fs::metadata(path_to_del.clone()).unwrap();
+    if meta.is_file() {
+        fs::remove_file(path_to_del).unwrap();
+    } else if meta.is_dir() {
+        fs::remove_dir_all(path_to_del).unwrap();
+    }
     Ok(())
  }
 

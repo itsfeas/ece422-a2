@@ -241,6 +241,18 @@ pub async fn update_path(client: Arc<Mutex<Client>>, file_path: String, new_file
     }
 }
 
+pub async fn delete_path(client: Arc<Mutex<Client>>, file_path: String) -> Result<(), String>{
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let e = client.lock().await.execute("
+        DELETE FROM fnode WHERE pgp_sym_decrypt(path ::bytea, $2 ::text) ~ $1",
+        &[&format!("^{}", file_path), &db_pass]
+    ).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to update path!".to_string()),
+    }
+}
+
 pub async fn update_fnode_name_if_path_is_already_updated(client: Arc<Mutex<Client>>, path: String, new_name: String) -> Result<(), String>{
     let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
     let e = client.lock().await.execute("UPDATE fnode SET name =
