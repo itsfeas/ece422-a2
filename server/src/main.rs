@@ -25,6 +25,7 @@ mod dao;
 // - https://docs.rs/aes-gcm/latest/aes_gcm/
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    let args: Vec<String> = env::args().collect();
     let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
     let (client, connection) =
         tokio_postgres::connect(&format!("host=localhost dbname=db user=USER password={} port=5431", db_pass), NoTls).await
@@ -35,8 +36,9 @@ async fn main() -> Result<(), Error> {
             eprintln!("connection error: {}", e);
         }
     });
-    let addr = "127.0.0.1:8080";
-    // let sock = TcpListener
+    let binding = "127.0.0.1:8080".to_string();
+    let addr = args.get(1)
+        .unwrap_or(&binding);
     let sock = TcpListener::bind(addr).await;
     let listener = sock.expect("failed to bind");
     println!("listening on: {}", addr);
