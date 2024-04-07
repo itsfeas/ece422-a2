@@ -1,9 +1,9 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE if not exists fnode  (
     id BIGSERIAL PRIMARY KEY,
-    name VARCHAR,
-    path VARCHAR,
-    owner VARCHAR,
+    name BYTEA,
+    path BYTEA,
+    owner BYTEA,
     hash VARCHAR,
     parent VARCHAR,
     dir BOOLEAN,
