@@ -1,5 +1,5 @@
 use std::fs::{create_dir_all, rename, self};
-use std::io; 
+use std::{env, io}; 
 use std::{io::Error, str::from_utf8, fs::File, fs::create_dir,  io::stdout, ops::Neg, io::Read, io::Write}; 
 use model::cmd::NumArgs;
 use rpassword::read_password;
@@ -45,10 +45,12 @@ fn print_err(string: String) {
 }
 
 fn main() -> Result<(), Error> {
+    let args: Vec<String> = env::args().collect();
+    let binding = "127.0.0.1:8080".to_string();
+    let server_addr = args.get(1)
+        .unwrap_or(&binding);
     
-    let server_addr = "127.0.0.1:8080";
-        
-    let url = Url::parse("ws://127.0.0.1:8080").expect("Failed to unwrap addr"); 
+    let url = Url::parse(&format!("ws://{}", server_addr)).expect("Failed to unwrap addr"); 
     let (mut socket, response) = connect(url).expect("Failed to connect");
     
     // Key transfer at the beginning of the session
@@ -142,7 +144,7 @@ fn admin_session<S>(socket: &mut WebSocket<S>, mut aes_key: Key<Aes256Gcm>, path
                 stdout().flush().unwrap();
                 let password = read_password().unwrap();
                 app_message.data.insert(1, password);
-                println!("{:?}", app_message.data);
+                // println!("{:?}", app_message.data);
                 new_user(&app_message, socket, &mut aes_key).unwrap_or_else(print_err);
                 
             },

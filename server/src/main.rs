@@ -25,6 +25,7 @@ mod dao;
 // - https://docs.rs/aes-gcm/latest/aes_gcm/
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    let args: Vec<String> = env::args().collect();
     let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
     let (client, connection) =
         tokio_postgres::connect(&format!("host=localhost dbname=db user=USER password={} port=5431", db_pass), NoTls).await
@@ -35,8 +36,9 @@ async fn main() -> Result<(), Error> {
             eprintln!("connection error: {}", e);
         }
     });
-    let addr = "127.0.0.1:8080";
-    // let sock = TcpListener
+    let binding = "127.0.0.1:8080".to_string();
+    let addr = args.get(1)
+        .unwrap_or(&binding);
     let sock = TcpListener::bind(addr).await;
     let listener = sock.expect("failed to bind");
     println!("listening on: {}", addr);
@@ -382,7 +384,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let encrypted_name_new = encrypt_string_nononce(&mut Arc::new(user_key), new_name.clone()).unwrap();
                 // println!("old_path_vec_enc {:?}", old_path_str);
                 dao::update_fnode_name_if_path_is_already_updated(pg_client.clone(), new_path.clone(), new_name.clone()).await;
-                dao:: update_fnode_enc_name(pg_client.clone(), new_path.clone(), encrypted_name_new.clone());
+                dao:: update_fnode_enc_name(pg_client.clone(), new_path.clone(), encrypted_name_new.clone()).await;
                 dao::remove_file_from_parent(pg_client.clone(), msg.data[0].clone(), msg.data[1].clone()).await;
                 dao::add_file_to_parent(pg_client.clone(), msg.data[0].clone(), new_name).await;
                 
