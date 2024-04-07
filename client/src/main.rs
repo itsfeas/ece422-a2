@@ -414,6 +414,13 @@ fn cd<S>(app_message: AppMessage,
          curr_path_read_only: &Path) -> Result<(), String>  where S: std::io::Read, S: std::io::Write { 
 
     let target_dir: String = app_message.data[1].clone(); 
+    if curr_path_read_only.path[curr_path_read_only.path.len()-1].1 == "home".to_string() &&
+        curr_path_read_only.path.len() == 2 && 
+        target_dir.eq(".."){
+        println!("Cannot go below home"); 
+        return Ok(()); 
+    }
+
     if target_dir.eq("..") {
         current_path.path.pop(); 
         return Ok(());
@@ -782,7 +789,7 @@ fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Resu
         if let Some(s) = current_path_vec.pop() {
             filename = s; 
             current_path_str = current_path_vec.join("/"); 
-            current_path_str.insert_str(0, "/"); 
+            // current_path_str.insert_str(0, "/"); 
         } else {
             filename = String::from("/"); 
             current_path_str = String::from("/"); 
@@ -798,6 +805,21 @@ fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Resu
         current_path_str = current_path_vec.join("/");
         current_path_str.remove(0); 
     }
+    // process current_path_str 
+    let mut curr_path_vec: Vec<String> = vec![]; 
+    // println!("Current path string: {}", current_path_str); 
+    current_path_str.split("/").for_each(|x| {
+        if x.clone() == ".." && curr_path_vec.len() > 0{
+            curr_path_vec.pop().unwrap(); 
+        } else if x.clone() == "." {
+
+        } else {
+            curr_path_vec.push(x.clone().to_string());  
+        }
+    }); 
+   
+    current_path_str = curr_path_vec.join("/"); 
+    // println!("Current path string: {}", current_path_str); 
     
     if app_msg.cmd == Cmd::Echo && app_msg.data.len() > 1 {
         let data = app_msg.data[0].clone(); 
@@ -808,12 +830,14 @@ fn preprocess_app_message(app_msg: &mut AppMessage, current_path: &Path) -> Resu
         app_msg.data.insert(0, current_path_str); 
 
     }
+
+    // println!("{:?}", app_msg); 
     
     Ok(Path {
         path: {
             let mut vecpath = app_msg.data[0].clone().split("/").filter(|x| (*x).clone() != "").map(|x| (false, x.into())).collect::<Vec<(bool, String)>>();  
             vecpath.insert(0, (false, "/".into())); 
-            // println!("{:?}", vecpath); 
+            // println!("{:?}", vecpath);
             vecpath
         }
     })
