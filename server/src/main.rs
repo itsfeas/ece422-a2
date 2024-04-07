@@ -35,7 +35,6 @@ async fn main() -> Result<(), Error> {
             eprintln!("connection error: {}", e);
         }
     });
-    // println!("Hello, world!");
     let addr = "127.0.0.1:8080";
     // let sock = TcpListener
     let sock = TcpListener::bind(addr).await;
@@ -214,7 +213,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                             let homenode = homenode_opt.unwrap();
                             let root_f_node = "/home".to_string();
                             search_tree_for_user(user_name.clone(), &homenode, &mut owned_paths, pg_client.clone(), root_f_node).await; 
-                            println!("PATHS OWNED BY USER: {:?}", owned_paths); 
+                            // println!("PATHS OWNED BY USER: {:?}", owned_paths); 
                         };
                         AppMessage {
                             cmd: Cmd::Login,
@@ -360,13 +359,15 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let encrypted_name_new = encrypt_string_nononce(&mut Arc::new(user_key), new_name.clone()).unwrap();
                 // println!("old_path_vec_enc {:?}", old_path_str);
                 dao::update_fnode_name_if_path_is_already_updated(pg_client.clone(), new_path.clone(), new_name.clone()).await;
-                dao:: update_fnode_enc_name(pg_client.clone(), new_path.clone(), encrypted_name_new);
+                dao:: update_fnode_enc_name(pg_client.clone(), new_path.clone(), encrypted_name_new.clone());
                 dao::remove_file_from_parent(pg_client.clone(), msg.data[0].clone(), msg.data[1].clone()).await;
                 dao::add_file_to_parent(pg_client.clone(), msg.data[0].clone(), new_name).await;
-
-                let new_path_vec_enc = path_str_to_encrypted_path(new_path.clone(), &pg_client).await;
+                
+                let mut new_path_vec_enc = old_path_vec_enc.clone();
+                new_path_vec_enc.pop();
+                new_path_vec_enc.push(encrypted_name_new.clone());
                 send_app_message(&mut ws_stream, &mut key, AppMessage {
-                    cmd: Cmd::Failure,
+                    cmd: Cmd::Mv,
                     data: vec!["/home".to_string()+&path_vec_to_str(old_path_vec_enc), "/home".to_string()+&path_vec_to_str(new_path_vec_enc)],
                 }).await;
             },
@@ -546,7 +547,7 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                     continue;
                 }
                 let file_data = msg.data.get(2).unwrap();
-                println!("received encrypted file_data {}", file_data);
+                // println!("received encrypted file_data {}", file_data);
                 if file_data.is_empty() {
                     send_app_message(&mut ws_stream, &mut key, AppMessage {
                         cmd: Cmd::Cat,

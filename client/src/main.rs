@@ -562,8 +562,8 @@ fn mv<S>(msg: &mut AppMessage,
  ) -> Result<(), String> where S:std::io::Read, S:std::io::Write {
     send_encrypt(msg, socket, encryption_key).unwrap();
     let unencrypted_response = recv_decrypt(socket, encryption_key).unwrap();
-    let old_path = unencrypted_response.data[0].clone();
-    let new_path = unencrypted_response.data[1].clone();
+    let old_path = "../FILESYSTEM".to_string()+&unencrypted_response.data[0].clone();
+    let new_path = "../FILESYSTEM".to_string()+&unencrypted_response.data[1].clone();
     // println!("attempting to rename {} to {}", old_path, new_path);
     rename(old_path, new_path).unwrap();
     Ok(())

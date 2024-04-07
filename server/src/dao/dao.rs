@@ -144,7 +144,7 @@ pub async fn add_file_to_parent(client: Arc<Mutex<Client>>, parent_path: String,
     let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
     let e = client.lock().await.execute("UPDATE fnode SET children =
         ARRAY_APPEND(children,
-            pgp_sym_encrypt($1 ::text, $3 ::text)::varchar
+            pgp_sym_encrypt($1 ::text, $3 ::text)::text
         )
         WHERE pgp_sym_decrypt(path ::bytea, $3 ::text)=$2",
     &[&new_f_node_name, &parent_path, &db_pass]).await;
@@ -211,8 +211,13 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
 
 pub async fn change_file_perms(client: Arc<Mutex<Client>>, file_path: String, u: i16, g: i16, o: i16) -> Result<(), String>{
     let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
-    let e = client.lock().await.execute("UPDATE fnode SET u=pgp_sym_encrypt($2 ::text, $5 ::text), g=pgp_sym_encrypt($3 ::text, $5 ::text), o=pgp_sym_encrypt($4 ::text, $5 ::text) WHERE pgp_sym_decrypt(path ::bytea, $5 ::text)=$1",
-    &[&file_path, &u, &g, &o, &db_pass]).await;
+    let e = client.lock().await.execute("
+        UPDATE fnode SET
+            u=pgp_sym_encrypt($2 ::text, $5 ::text),
+            g=pgp_sym_encrypt($3 ::text, $5 ::text),
+            o=pgp_sym_encrypt($4 ::text, $5 ::text)
+        WHERE pgp_sym_decrypt(path ::bytea, $5 ::text)=$1",
+    &[&file_path, &u.to_string(), &g.to_string(), &o.to_string(), &db_pass]).await;
     match e {
         Ok(_) => Ok(()),
         _ => Err("Failed to update file permissions!".to_string()),
