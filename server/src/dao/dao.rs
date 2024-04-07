@@ -45,7 +45,7 @@ pub async fn add_file(client: Arc<Mutex<Client>>, file: FNode) -> Result<String,
 
 pub async fn update_hash(client: Arc<Mutex<Client>>, path: String, file_name: String, hash: String) -> Result<String, String>{
     let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
-    let e = client.lock().await.execute("UPDATE fnode SET hash = $1 WHERE path=pgp_sym_encrypt($2 ::text, $3 ::text)",
+    let e = client.lock().await.execute("UPDATE fnode SET hash = $1 WHERE pgp_sym_decrypt(path ::bytea, $3 ::text)=$2",
     &[&hash, &path, &db_pass]).await;
     match e {
         Ok(_) => Ok(path),
@@ -140,20 +140,28 @@ pub async fn create_group(client: Arc<Mutex<Client>>, group_name: String) -> Res
 //     }
 // }
 
-//parent field not used
 pub async fn add_file_to_parent(client: Arc<Mutex<Client>>, parent_path: String, new_f_node_name: String) -> Result<(), String>{
-    // let e = client.lock().await.execute("UPDATE fnode SET children = ARRAY_APPEND(children, $1) WHERE path=$2",
-    // &[&new_f_node_name, &parent_path]).await;
-    // match e {
-    //     Ok(_) => Ok(()),
-    //     _ => Err("Failed to add user to group!".to_string()),
-    // }
-    Ok(())
+    let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
+    let e = client.lock().await.execute("UPDATE fnode SET children =
+        ARRAY_APPEND(children,
+            pgp_sym_encrypt($1 ::text, $3 ::text)::varchar
+        )
+        WHERE pgp_sym_decrypt(path ::bytea, $3 ::text)=$2",
+    &[&new_f_node_name, &parent_path, &db_pass]).await;
+    match e {
+        Ok(_) => Ok(()),
+        _ => Err("Failed to add file to parent!".to_string()),
+    }
 }
 
 pub async fn remove_file_from_parent(client: Arc<Mutex<Client>>, parent_path: String, f_node_name: String) -> Result<(), String>{
     let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
-    let e = client.lock().await.execute("UPDATE fnode SET children = ARRAY_REMOVE(children, pgp_sym_encrypt($1 ::text, $3 ::text)) WHERE path=pgp_sym_encrypt($2 ::text, $3 ::text)",
+    let e = client.lock().await.execute("UPDATE fnode
+        SET children = 
+            (SELECT array_agg(pgp_sym_encrypt(child1::text, $3::text)) FROM unnest
+                (ARRAY_REMOVE((SELECT array_agg(pgp_sym_decrypt(child ::bytea, $3::text)) FROM unnest(children) AS child), $1)
+            ) AS child1)
+            WHERE pgp_sym_decrypt(path ::bytea, $3 ::text)=$2",
     &[&f_node_name, &parent_path, &db_pass]).await;
     match e {
         Ok(_) => Ok(()),
@@ -176,7 +184,7 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
         CAST (pgp_sym_decrypt(o ::bytea, $2 ::text) AS SMALLINT) AS o,
         (SELECT array_agg(pgp_sym_decrypt(child ::bytea, $2::text)) FROM unnest(children) AS child) AS children,
         encrypted_name
-    FROM fnode WHERE path = pgp_sym_encrypt($1 ::text, $2 ::text)::text",
+    FROM fnode WHERE pgp_sym_decrypt(path::bytea, $2::text) = $1",
         &[&path, &db_pass]).await;
     match e {
         Ok(Some(row)) => {
@@ -191,7 +199,7 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
                 u: row.get(7),
                 g: row.get(8),
                 o: row.get(9),
-                children: row.get(10),
+                children: row.try_get(10).unwrap_or(vec![]),
                 encrypted_name: row.get(11),
             };
             Ok(Some(fnode))
@@ -203,7 +211,7 @@ pub async fn get_f_node(client: Arc<Mutex<Client>>, path: String) -> Result<Opti
 
 pub async fn change_file_perms(client: Arc<Mutex<Client>>, file_path: String, u: i16, g: i16, o: i16) -> Result<(), String>{
     let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
-    let e = client.lock().await.execute("UPDATE fnode SET u=pgp_sym_encrypt($2 ::text, $5 ::text), g=pgp_sym_encrypt($3 ::text, $5 ::text), o=pgp_sym_encrypt($4 ::text, $5 ::text) WHERE path=pgp_sym_encrypt($1 ::text, $5 ::text)",
+    let e = client.lock().await.execute("UPDATE fnode SET u=pgp_sym_encrypt($2 ::text, $5 ::text), g=pgp_sym_encrypt($3 ::text, $5 ::text), o=pgp_sym_encrypt($4 ::text, $5 ::text) WHERE pgp_sym_decrypt(path ::bytea, $5 ::text)=$1",
     &[&file_path, &u, &g, &o, &db_pass]).await;
     match e {
         Ok(_) => Ok(()),
@@ -213,7 +221,13 @@ pub async fn change_file_perms(client: Arc<Mutex<Client>>, file_path: String, u:
 
 pub async fn update_path(client: Arc<Mutex<Client>>, file_path: String, new_file_path: String) -> Result<(), String>{
     let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
-    let e = client.lock().await.execute("UPDATE fnode SET path = pgp_sym_encrypt(regexp_replace(pgp_sym_decrypt(path ::bytea, $3 ::text), $1, $2, 'g'), $3 ::text) WHERE pgp_sym_decrypt(path ::bytea, $3 ::text) ~ $3",
+    let e = client.lock().await.execute("UPDATE fnode SET path = 
+        pgp_sym_encrypt(
+            regexp_replace(
+                pgp_sym_decrypt(path ::bytea, $4 ::text),
+            $1, $2, 'g'),
+        $4 ::text)
+        WHERE pgp_sym_decrypt(path ::bytea, $4 ::text) ~ $3",
         &[&format!("^{}", file_path), &new_file_path, &format!("^{}", file_path), &db_pass]
     ).await;
     match e {
@@ -224,7 +238,9 @@ pub async fn update_path(client: Arc<Mutex<Client>>, file_path: String, new_file
 
 pub async fn update_fnode_name_if_path_is_already_updated(client: Arc<Mutex<Client>>, path: String, new_name: String) -> Result<(), String>{
     let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
-    let e = client.lock().await.execute("UPDATE fnode SET name = pgp_sym_encrypt($2 ::text, $3 ::text) WHERE path = pgp_sym_encrypt($1 ::text, $3 ::text)",
+    let e = client.lock().await.execute("UPDATE fnode SET name =
+        pgp_sym_encrypt($2 ::text, $3 ::text)
+        WHERE pgp_sym_decrypt(path::bytea, $3::text) = $1",
     &[&path, &new_name, &db_pass]).await;
     match e {
         Ok(_) => Ok(()),
@@ -234,7 +250,7 @@ pub async fn update_fnode_name_if_path_is_already_updated(client: Arc<Mutex<Clie
 
 pub async fn update_fnode_enc_name(client: Arc<Mutex<Client>>, path: String, new_enc_name: String) -> Result<(), String>{
     let db_pass = env::var("DB_PASS").unwrap_or("TEMP".to_string());
-    let e = client.lock().await.execute("UPDATE fnode SET encrypted_name = $2 WHERE path = pgp_sym_encrypt($1 ::text, $3 ::text)",
+    let e = client.lock().await.execute("UPDATE fnode SET encrypted_name = $2 WHERE pgp_sym_decrypt(path ::bytea, $3 ::text) = $1",
     &[&path, &new_enc_name, &db_pass]).await;
     match e {
         Ok(_) => Ok(()),
