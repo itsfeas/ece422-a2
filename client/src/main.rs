@@ -144,7 +144,7 @@ fn admin_session<S>(socket: &mut WebSocket<S>, mut aes_key: Key<Aes256Gcm>, path
                 stdout().flush().unwrap();
                 let password = read_password().unwrap();
                 app_message.data.insert(1, password);
-                println!("{:?}", app_message.data);
+                // println!("{:?}", app_message.data);
                 new_user(&app_message, socket, &mut aes_key).unwrap_or_else(print_err);
                 
             },
