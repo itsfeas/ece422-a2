@@ -266,8 +266,9 @@ fn login<S>(msg: &AppMessage, socket: &mut WebSocket<S>, key: &mut Key<Aes256Gcm
         match recv_message.cmd {
             Cmd::Scan => {continue;},   
             Cmd::Failure => {
-                corrupt_count += 1; 
-                println!("{:?} {:?}", x.0.clone(), x.1.clone())
+                corrupt_count += 1;
+                println!("{}", recv_message.data[0]);
+                // println!("{:?} {:?}", x.0.clone(), x.1.clone())
             }, 
             _ => {panic!("Invalid message received when running Scan")}
         } 
@@ -650,12 +651,12 @@ fn echo<S>(app_message: AppMessage,
     let path_enc = match convert_path_to_enc(&target_file, current_path, socket, encryption_key) {
         Ok(e) => e,
         Err(_) => {
-            touch(AppMessage {
-                cmd: Cmd::Touch,
-                data: vec![current_path.to_string(), target_file.clone()]
-            }, socket, encryption_key, current_path);
-            echo(app_message, socket, encryption_key, current_path);
-            return Ok(());
+            // touch(AppMessage {
+            //     cmd: Cmd::Touch,
+            //     data: vec![current_path.to_string(), target_file.clone()]
+            // }, socket, encryption_key, current_path);
+            // echo(app_message, socket, encryption_key, current_path);
+            return Err("File does not exist or cannot be written to".to_string());
         },
     };
     let mut path_enc_string = path_enc.to_string();
@@ -883,7 +884,8 @@ fn scan(paths: &Vec<(String, String)>) -> Vec<(String, String)> {
         }
         let md = fs::metadata(enc_path.clone()).unwrap(); 
         if md.is_dir() {
-            content.push((x.1.clone(), "".into())); 
+            // content.push((x.1.clone(), "".into()));
+            // dont need to check contents of a dir
         } else if md.is_file() {
             let file_contents = fs::read_to_string(enc_path.clone()).unwrap(); 
             content.push((x.1.clone(), file_contents)); 

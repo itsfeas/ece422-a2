@@ -243,12 +243,12 @@ async fn accept_connection(stream: TcpStream, pg_client: Arc<Mutex<Client>>) {
                 let msg = if hash_new.eq(&hash_existing) {
                     AppMessage {
                         cmd: Cmd::Scan,
-                        data: vec![format!("ensured integrity of {}!", path_str)],
+                        data: vec![format!("Ensured integrity of {}!", path_str)],
                     }
                 } else {
                     AppMessage {
                         cmd: Cmd::Failure,
-                        data: vec!["integrity of file compromised!".to_string()],
+                        data: vec![format!("Integrity of file {} compromised!", path_str)],
                     }
                 };
                 send_app_message(&mut ws_stream, &mut key, msg).await;
