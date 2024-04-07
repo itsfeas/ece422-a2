@@ -140,6 +140,11 @@ fn admin_session<S>(socket: &mut WebSocket<S>, mut aes_key: Key<Aes256Gcm>, path
                 new_group(&mut app_message, socket, &mut aes_key,  &rel_current_path).unwrap_or_else(print_err);
             },
             Cmd::NewUser => {
+                print!("Password:");
+                stdout().flush().unwrap();
+                let password = read_password().unwrap();
+                app_message.data.insert(1, password);
+                println!("{:?}", app_message.data);
                 new_user(&app_message, socket, &mut aes_key).unwrap_or_else(print_err);
                 
             },
